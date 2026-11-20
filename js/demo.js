@@ -1,59 +1,56 @@
-// Exemple inventé (aucune donnée réelle) : trois calendriers sur quatre mois, pour voir les stats.
-import { ajouterJours, aujourdhui, jourSemaine } from './calc.js';
+// Exemple inventé (aucune donnée réelle) : trois semaines de notes, pour tester la vue jour.
+import { ajouterJours, aujourdhui } from './calc.js';
 
 function graine(n) {
   return () => { n = (n * 1664525 + 1013904223) % 4294967296; return n / 4294967296; };
 }
 
+const hm = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
 export function exemple(auj = aujourdhui()) {
-  const r = graine(42);
-  const debut = ajouterJours(auj, -120);
-  const id = (p, i) => `ex-${p}-${i}`;
-  const fatigue = {
-    id: 'ex-fatigue', nom: 'Fatigue KO', couleur: '#c2416b', debut, exemple: true, saisie: 'jour',
-    echelle: { nom: 'Intensité', min: 1, max: 10, bas: 'un peu las', haut: 'KO total' },
-    etiquettes: [{ id: 'f1', nom: 'mal dormi' }, { id: 'f2', nom: 'journée chargée' }, { id: 'f3', nom: 'après sport' }],
-    note: true, loupes: [],
-  };
-  const stress = {
-    id: 'ex-stress', nom: 'Stress', couleur: '#6f8fd0', debut, exemple: true, saisie: 'heure',
-    echelle: { nom: 'Niveau', min: 1, max: 5, bas: 'léger', haut: 'fort' },
-    etiquettes: [{ id: 's1', nom: 'travail' }, { id: 's2', nom: 'transport' }, { id: 's3', nom: 'famille' }],
-    note: true, loupes: [],
-  };
-  const cles = {
-    id: 'ex-cles', nom: 'Clés oubliées', couleur: '#c9a35e', debut, exemple: true, saisie: 'les-deux',
-    echelle: null, etiquettes: [], note: true, loupes: [],
-  };
-  const saisies = [];
-  const joursStress = new Set();
+  const r = graine(7);
+  const notes = [];
+  const blocs = [];
+  const personnes = [{ id: 'ex-p1', nom: 'Léa', exemple: true }, { id: 'ex-p2', nom: 'Sam', exemple: true }];
   let i = 0;
-  for (let d = debut; d < auj; d = ajouterJours(d, 1)) {
-    const j = jourSemaine(d);
-    // Stress : plus fréquent en semaine, vers 9 h et 17 h.
-    const pS = j < 5 ? (j === 0 ? 0.55 : 0.32) : 0.08;
-    if (r() < pS) {
-      joursStress.add(d);
-      const n = r() < 0.25 ? 2 : 1;
-      for (let k = 0; k < n; k++) {
-        const soir = r() < 0.45;
-        const h = soir ? 16 + Math.floor(r() * 3) : 8 + Math.floor(r() * 2);
-        saisies.push({ id: id('s', i++), cal: stress.id, date: d, heure: `${String(h).padStart(2, '0')}:${String(Math.floor(r() * 60)).padStart(2, '0')}`, valeur: 1 + Math.floor(r() * 5), etiquettes: [soir ? 's2' : 's1'].concat(r() < 0.15 ? ['s3'] : []), note: '', cree: 0 });
+  // Une heure « m » (en minutes depuis minuit) d'un jour « d » ; au-delà de 24 h, on passe au lendemain.
+  const ts = (d, m) => `${m >= 1440 ? ajouterJours(d, 1) : d}T${hm(m)}`;
+  const n = (d, m, type, extra = {}) => {
+    const x = { id: `ex-${i++}`, type, debut: ts(d, m), fin: null, enCours: false, precision: 'exacte', intensite: null, issue: null, quantite: '', aide: null, motif: null, activite: '', plaisir: null, maitrise: null, facettes: [], avecQui: [], personnes: [], etiquettes: [], phrase: '', bloc: null, cree: 0, exemple: true, ...extra };
+    if (extra.duree) { x.fin = ts(d, m + extra.duree); delete x.duree; }
+    notes.push(x);
+    return x;
+  };
+  for (let k = 20; k >= 0; k--) {
+    const d = ajouterJours(auj, -k);
+    const semaine = new Date(`${d}T12:00`).getDay() % 6 !== 0;
+    if (semaine) n(d, 9 * 60 + Math.floor(r() * 30), 'travail', { duree: 480, plaisir: 3 + Math.floor(r() * 3), maitrise: 5 + Math.floor(r() * 3), facettes: ['subie', 'ecran'], avecQui: ['collegues'], activite: r() < 0.3 ? 'Télétravail' : '' });
+    if (r() < 0.35) n(d, 18 * 60 + 30, 'loisir', { duree: 80, activite: 'PWA avec Claude', plaisir: 8, maitrise: 8 + Math.floor(r() * 2), facettes: ['choisie', 'ecran', 'creatif'], avecQui: ['seul'] });
+    if (r() < 0.25) n(d, 19 * 60, 'sortie', { duree: 150, activite: 'Dîner', plaisir: 7, maitrise: 5, facettes: ['choisie', 'dehors'], avecQui: ['amis'], personnes: [r() < 0.5 ? 'ex-p1' : 'ex-p2'] });
+    if (r() < 0.6) {
+      // Une soirée en chaîne : déclencheur, agitation, mal-être, fatigue, envie, coping, action aidante.
+      const t0 = 20 * 60 + 40 + Math.floor(r() * 40);
+      const ch = [];
+      ch.push(n(d, t0, 'declencheur', { etiquettes: [r() < 0.5 ? 't6' : 't5'], phrase: r() < 0.3 ? 'Mail du chef en fin de journée' : '' }));
+      ch.push(n(d, t0 + 10, 'agitation', { intensite: 5 + Math.floor(r() * 3), etiquettes: ['t7', 't8'] }));
+      ch.push(n(d, t0 + 15, 'maletre', { intensite: 5 + Math.floor(r() * 3) }));
+      ch.push(n(d, t0 + 35, 'fatigue', { intensite: 4 + Math.floor(r() * 3) }));
+      ch.push(n(d, t0 + 50, 'agitation', { intensite: 7 + Math.floor(r() * 3) }));
+      ch.push(n(d, t0 + 55, 'maletre', { intensite: 7 + Math.floor(r() * 2) }));
+      const cede = r() < 0.6;
+      ch.push(n(d, t0 + 70, 'e-ecrans', { intensite: 6 + Math.floor(r() * 4), issue: cede ? 'cede' : 'traversee' }));
+      if (cede) ch.push(n(d, t0 + 75, 'c-ecrans', { duree: 40 + Math.floor(r() * 30), quantite: '' }));
+      ch.push(n(d, t0 + 100, 'fatigue', { intensite: 7 + Math.floor(r() * 3) }));
+      if (r() < 0.7) ch.push(n(d, t0 + 150, r() < 0.5 ? 'coucher' : 'respiration', { aide: r() < 0.7 ? 'oui' : 'unpeu' }));
+      if (k === 1) {
+        const b = { id: 'ex-bloc', nom: 'Soirée difficile' };
+        blocs.push(b);
+        for (const x of ch) x.bloc = b.id;
       }
     }
-    // Fatigue : plus probable le lendemain d'un stress, et le lundi.
-    const veille = ajouterJours(d, -1);
-    const pF = 0.1 + (joursStress.has(veille) ? 0.35 : 0) + (j === 0 ? 0.15 : 0);
-    if (r() < pF) {
-      const tags = [];
-      if (joursStress.has(veille) && r() < 0.6) tags.push('f1');
-      if (j < 5 && r() < 0.4) tags.push('f2');
-      if (r() < 0.2) tags.push('f3');
-      saisies.push({ id: id('f', i++), cal: fatigue.id, date: d, heure: null, valeur: Math.min(10, 4 + Math.floor(r() * 5) + (tags.includes('f1') ? 2 : 0)), etiquettes: tags, note: '', cree: 0 });
-    }
-    if (r() < 0.05) saisies.push({ id: id('c', i++), cal: cles.id, date: d, heure: r() < 0.5 ? null : `0${7 + Math.floor(r() * 2)}:${String(Math.floor(r() * 60)).padStart(2, '0')}`, valeur: null, etiquettes: [], note: '', cree: 0 });
-    if (r() < 0.03) fatigue.loupes.push(d);
+    if (r() < 0.25) n(d, 14 * 60 + 30, 'c-reverie', { duree: 45, etiquettes: ['t13'] });
+    if (r() < 0.2) n(d, 15 * 60, 'c-dormir', { duree: 70, motif: r() < 0.6 ? 'pour fuir' : 'pour récupérer' });
+    if (k > 0) n(d, 23 * 60 + 20 + Math.floor(r() * 50), 'endormissement', { duree: 30 + Math.floor(r() * 60), intensite: 2 + Math.floor(r() * 7) });
   }
-  fatigue.loupes = fatigue.loupes.filter((d) => !saisies.some((s) => s.cal === fatigue.id && s.date === d));
-  return { calendriers: [fatigue, stress, cles], saisies, liens: [{ id: 'ex-lien', a: fatigue.id, b: stress.id }] };
+  return { notes, blocs, personnes };
 }

@@ -76,3 +76,22 @@ export function ilYA(iso, auj = aujourdhui()) {
 }
 
 export const majuscule = (t) => { t = String(t || '').trim(); return t.charAt(0).toUpperCase() + t.slice(1); };
+
+// --- Horodatages v2 : « AAAA-MM-JJTHH:MM » en heure locale ------------------------------
+
+export const horodatage = (d = new Date()) => `${aujourdhui(d)}T${heureMaintenant(d)}`;
+
+/** Minutes depuis l'époque, en heure locale (chaîne sans fuseau = heure locale). */
+export const minutes = (ts) => Math.round(Date.parse(ts) / 60000);
+
+export const deMinutes = (m) => horodatage(new Date(m * 60000));
+
+export const ajouterMinutes = (ts, n) => deMinutes(minutes(ts) + n);
+
+/** Journée de vie : de 5 h à 5 h. Une note à 1 h du matin appartient à la veille. */
+export function jourDe(ts, debutJournee = 5) {
+  return aujourdhui(new Date(Date.parse(ts) - debutJournee * 3600000));
+}
+
+/** « 21:04 » depuis un horodatage. */
+export const heureDe = (ts) => (ts ? ts.slice(11, 16) : '');

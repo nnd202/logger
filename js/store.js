@@ -1,35 +1,41 @@
-// État de l'appli, gardé en JSON dans le stockage local du navigateur.
-import { uid, aujourdhui } from './calc.js';
+// État de Logger v2 : un seul journal de notes, gardé en JSON dans le stockage du navigateur.
+import { uid, horodatage, jourDe, minutes } from './calc.js';
+import { typesDeDepart, etiquettesDeDepart, FAMILLES, DEBUT_JOURNEE } from './catalogue.js';
 
-const CLE = 'logger-etat';
-const CLE_COPIE = 'logger-copie';
-
-export const COULEURS = ['#c2416b', '#e0794f', '#c9a35e', '#83aa72', '#4fa8a0', '#5fa3c4', '#6f8fd0', '#9a88c8', '#b58fb8', '#8f9db0'];
+const CLE = 'logger2-etat';
+const CLE_COPIE = 'logger2-copie';
 
 let etat = charger();
 
-function vierge() {
-  return { version: 1, calendriers: [], saisies: [], liens: [], reglages: {} };
+export function vierge() {
+  return {
+    version: 2,
+    types: typesDeDepart(),
+    notes: [],
+    blocs: [],
+    jours: {}, // { 'AAAA-MM-JJ': { calme: true } }
+    pauses: [], // [{ id, du, au | null }]
+    etiquettes: etiquettesDeDepart(),
+    personnes: [], // [{ id, nom }]
+    reglages: { ecartEpisode: 45, calques: FAMILLES.map((f) => f.id), echelleHeure: 48 },
+  };
 }
 
 function normaliser(e) {
-  const v = { ...vierge(), ...(e || {}) };
-  v.calendriers = (v.calendriers || []).map(normaliserCal);
-  v.saisies = v.saisies || [];
-  v.liens = v.liens || [];
-  v.reglages = v.reglages || {};
-  return v;
-}
-
-function normaliserCal(c) {
-  return { saisie: 'les-deux', echelle: null, etiquettes: [], note: true, loupes: [], couleur: COULEURS[0], ...c };
+  const v = vierge();
+  const r = { ...v, ...(e || {}) };
+  r.reglages = { ...v.reglages, ...(e?.reglages || {}) };
+  // Types ajoutés au catalogue après coup : on les complète sans toucher aux réglages existants.
+  const ids = new Set(r.types.map((t) => t.id));
+  for (const t of v.types) if (!ids.has(t.id)) r.types.push(t);
+  return r;
 }
 
 function charger() {
   try {
     const brut = localStorage.getItem(CLE);
     if (brut) return normaliser(JSON.parse(brut));
-  } catch { /* stockage indisponible ou illisible */ }
+  } catch { /* stockage indisponible */ }
   return vierge();
 }
 
@@ -38,125 +44,204 @@ export function enregistrer() {
 }
 
 export const get = () => etat;
-export const calendriers = () => etat.calendriers;
-export const calendrier = (id) => etat.calendriers.find((c) => c.id === id) || null;
-export const saisie = (id) => etat.saisies.find((s) => s.id === id) || null;
+export const reglages = () => etat.reglages;
+export const type = (id) => etat.types.find((t) => t.id === id) || null;
+export const typesVisibles = (fam) => etat.types.filter((t) => t.visible && (!fam || t.famille === fam));
+export const note = (id) => etat.notes.find((n) => n.id === id) || null;
+export const bloc = (id) => etat.blocs.find((b) => b.id === id) || null;
+export const etiquette = (id) => etat.etiquettes.find((e) => e.id === id) || null;
+export const personne = (id) => etat.personnes.find((p) => p.id === id) || null;
 
-/** Saisies d'un calendrier, triées par date puis heure (la journée avant les heures). */
-export function saisiesDe(calId) {
-  return etat.saisies
-    .filter((s) => s.cal === calId)
-    .sort((a, b) => (a.date + (a.heure || '')).localeCompare(b.date + (b.heure || '')));
-}
+const parDebut = (a, b) => a.debut.localeCompare(b.debut);
+export const notesTriees = () => [...etat.notes].sort(parDebut);
+export const notesDuJour = (date) => etat.notes.filter((n) => jourDe(n.debut, DEBUT_JOURNEE) === date).sort(parDebut);
+export const enCours = () => etat.notes.filter((n) => n.enCours).sort(parDebut);
 
-export function saisiesDuJour(calId, date) {
-  return saisiesDe(calId).filter((s) => s.date === date);
-}
+// --- Notes --------------------------------------------------------------------------
 
-// --- Calendriers -------------------------------------------------------------------
-
-export function couleurLibre() {
-  const prises = new Set(etat.calendriers.map((c) => c.couleur));
-  return COULEURS.find((c) => !prises.has(c)) || COULEURS[etat.calendriers.length % COULEURS.length];
-}
-
-export function creerCalendrier(nom) {
-  const c = normaliserCal({ id: uid('c'), nom, debut: aujourdhui(), cree: Date.now(), couleur: couleurLibre() });
-  etat.calendriers.push(c);
+export function ajouterNote(champs) {
+  const n = {
+    id: uid('n'), type: null, debut: horodatage(), fin: null, enCours: false, precision: 'exacte',
+    intensite: null, issue: null, quantite: '', aide: null, motif: null,
+    activite: '', plaisir: null, maitrise: null, facettes: [],
+    avecQui: [], personnes: [], etiquettes: [], phrase: '', bloc: null, cree: Date.now(),
+    ...champs,
+  };
+  etat.notes.push(n);
   enregistrer();
+  return n;
+}
+
+export function modifierNote(n, champs) {
+  Object.assign(n, champs);
+  if (n.fin && n.fin < n.debut) [n.debut, n.fin] = [n.fin, n.debut];
+  enregistrer();
+}
+
+export function supprimerNote(id) {
+  const n = note(id);
+  etat.notes = etat.notes.filter((x) => x.id !== id);
+  if (n?.bloc) nettoyerBlocs();
+  enregistrer();
+  return n;
+}
+
+export function remettreNote(n) {
+  etat.notes.push(n);
+  enregistrer();
+}
+
+export function arreter(n, fin = horodatage()) {
+  n.enCours = false;
+  n.fin = fin < n.debut ? n.debut : fin;
+  enregistrer();
+}
+
+/** « Encore » : la dernière note répétée maintenant (même type, intensité, étiquettes, entourage). */
+export function derniere() {
+  return [...etat.notes].sort((a, b) => b.cree - a.cree)[0] || null;
+}
+
+export function encore() {
+  const d = derniere();
+  if (!d) return null;
+  const { type: ty, intensite, etiquettes, avecQui, personnes } = d;
+  return ajouterNote({ type: ty, intensite, etiquettes: [...etiquettes], avecQui: [...avecQui], personnes: [...personnes] });
+}
+
+// --- Blocs : regroupements faits à la main ------------------------------------------------
+
+export function creerBloc(ids, nom = '') {
+  const b = { id: uid('b'), nom };
+  etat.blocs.push(b);
+  for (const n of etat.notes) if (ids.includes(n.id)) n.bloc = b.id;
+  nettoyerBlocs();
+  enregistrer();
+  return b;
+}
+
+export function definirMembres(blocId, ids) {
+  for (const n of etat.notes) {
+    if (ids.includes(n.id)) n.bloc = blocId;
+    else if (n.bloc === blocId) n.bloc = null;
+  }
+  nettoyerBlocs();
+  enregistrer();
+}
+
+export function defaireBloc(blocId) {
+  for (const n of etat.notes) if (n.bloc === blocId) n.bloc = null;
+  etat.blocs = etat.blocs.filter((b) => b.id !== blocId);
+  enregistrer();
+}
+
+/** Un bloc vide disparaît. */
+function nettoyerBlocs() {
+  const utilises = new Set(etat.notes.map((n) => n.bloc).filter(Boolean));
+  etat.blocs = etat.blocs.filter((b) => utilises.has(b.id));
+}
+
+// --- Jours renseignés et pauses ------------------------------------------------------------
+
+export function enPause(date) {
+  return etat.pauses.find((p) => p.du <= date && (!p.au || date <= p.au)) || null;
+}
+
+/** Renseigné : au moins une note, ou « journée calme ». */
+export function statutJour(date) {
+  if (notesDuJour(date).length) return 'renseigne';
+  if (etat.jours[date]?.calme) return 'calme';
+  if (enPause(date)) return 'pause';
+  return 'vide';
+}
+
+export function basculerCalme(date) {
+  if (etat.jours[date]?.calme) delete etat.jours[date];
+  else etat.jours[date] = { calme: true };
+  enregistrer();
+}
+
+export function commencerPause(du) {
+  etat.pauses.push({ id: uid('p'), du, au: null });
+  enregistrer();
+}
+
+export function finirPause(p, au) {
+  p.au = au < p.du ? p.du : au;
+  enregistrer();
+}
+
+export function supprimerPause(id) {
+  etat.pauses = etat.pauses.filter((p) => p.id !== id);
+  enregistrer();
+}
+
+// --- Bibliothèques : types, étiquettes, personnes ------------------------------------------------
+
+export function ajouterType(famille, nom) {
+  const ref = etat.types.find((t) => t.famille === famille);
+  const t = { id: uid('ty'), famille, nom, visible: true, echelle: ref?.echelle ? { ...ref.echelle, bas: 'à peine', haut: 'très fort' } : null, perso: true };
+  etat.types.push(t);
+  enregistrer();
+  return t;
+}
+
+export function ajouterEtiquette(nom) {
+  const deja = etat.etiquettes.find((e) => e.nom.toLowerCase() === nom.toLowerCase());
+  if (deja) { deja.archive = false; enregistrer(); return deja; }
+  const e = { id: uid('t'), nom, archive: false };
+  etat.etiquettes.push(e);
+  enregistrer();
+  return e;
+}
+
+/** Fusionne l'étiquette « de » dans « vers » : les notes suivent, « de » disparaît. */
+export function fusionnerEtiquettes(de, vers) {
+  for (const n of etat.notes) {
+    if (n.etiquettes.includes(de)) n.etiquettes = [...new Set(n.etiquettes.map((x) => (x === de ? vers : x)))];
+  }
+  etat.etiquettes = etat.etiquettes.filter((e) => e.id !== de);
+  enregistrer();
+}
+
+export function ajouterPersonne(nom) {
+  const deja = etat.personnes.find((p) => p.nom.toLowerCase() === nom.toLowerCase());
+  if (deja) return deja;
+  const p = { id: uid('pe'), nom };
+  etat.personnes.push(p);
+  enregistrer();
+  return p;
+}
+
+/** Combien de fois chaque étiquette / type a servi (pour trier par usage). */
+export function usages(champ) {
+  const c = new Map();
+  for (const n of etat.notes) {
+    const v = n[champ];
+    for (const x of Array.isArray(v) ? v : [v]) if (x) c.set(x, (c.get(x) || 0) + 1);
+  }
   return c;
 }
 
-export function supprimerCalendrier(id) {
-  etat.calendriers = etat.calendriers.filter((c) => c.id !== id);
-  etat.saisies = etat.saisies.filter((s) => s.cal !== id);
-  etat.liens = etat.liens.filter((l) => l.a !== id && l.b !== id);
-  enregistrer();
+/** Noms d'activités déjà utilisés, du plus fréquent au moins fréquent. */
+export function nomsActivites() {
+  const c = new Map();
+  for (const n of etat.notes) if (n.activite) c.set(n.activite, (c.get(n.activite) || 0) + 1);
+  return [...c].sort((a, b) => b[1] - a[1]).map(([nom]) => nom);
 }
 
-export function deplacerCalendrier(id, pas) {
-  const l = etat.calendriers;
-  const i = l.findIndex((c) => c.id === id);
-  const j = i + pas;
-  if (i < 0 || j < 0 || j >= l.length) return;
-  [l[i], l[j]] = [l[j], l[i]];
-  enregistrer();
-}
+// --- Export, import, copie -------------------------------------------------------------------
 
-/** Une saisie ou un jour loupé avant le début du suivi recule ce début. */
-function reculerDebut(c, date) {
-  if (date < c.debut) c.debut = date;
-}
-
-// --- Saisies -----------------------------------------------------------------------
-
-export function ajouterSaisie(c, champs) {
-  const s = { id: uid('s'), cal: c.id, date: aujourdhui(), heure: null, valeur: null, etiquettes: [], note: '', cree: Date.now(), ...champs };
-  etat.saisies.push(s);
-  reculerDebut(c, s.date);
-  // Un jour saisi n'est plus « loupé ».
-  c.loupes = c.loupes.filter((d) => d !== s.date);
-  enregistrer();
-  return s;
-}
-
-export function modifierSaisie(s, champs) {
-  Object.assign(s, champs);
-  const c = calendrier(s.cal);
-  if (c) { reculerDebut(c, s.date); c.loupes = c.loupes.filter((d) => d !== s.date); }
-  enregistrer();
-}
-
-export function supprimerSaisie(id) {
-  etat.saisies = etat.saisies.filter((s) => s.id !== id);
-  enregistrer();
-}
-
-export function basculerLoupe(c, date) {
-  if (c.loupes.includes(date)) c.loupes = c.loupes.filter((d) => d !== date);
-  else { c.loupes = [...c.loupes, date].sort(); reculerDebut(c, date); }
-  enregistrer();
-}
-
-// --- Liens entre calendriers -------------------------------------------------------
-
-export function lier(a, b) {
-  if (a === b || etat.liens.some((l) => (l.a === a && l.b === b) || (l.a === b && l.b === a))) return null;
-  const l = { id: uid('l'), a, b };
-  etat.liens.push(l);
-  enregistrer();
-  return l;
-}
-
-export function delier(id) {
-  etat.liens = etat.liens.filter((l) => l.id !== id);
-  enregistrer();
-}
-
-export const liensDe = (calId) => etat.liens.filter((l) => l.a === calId || l.b === calId);
-
-// --- Export, import, copie de secours ------------------------------------------------
-
-export function contenuExport() {
-  const { code, ...reglages } = etat.reglages; // le code reste sur l'appareil
+/** Données à exporter : tout sauf le code de l'appareil. */
+export function donneesExport() {
+  const { code, ...reglagesSansCode } = etat.reglages;
   void code;
-  return JSON.stringify({
-    format: 'logger-export', version: 1, application: 'Logger', le: new Date().toISOString(),
-    calendriers: etat.calendriers, saisies: etat.saisies, liens: etat.liens, reglages,
-  }, null, 1);
+  return { ...etat, reglages: reglagesSansCode };
 }
 
-export function noterExport() {
-  etat.reglages.dernierExport = aujourdhui();
+export function noterExport(date) {
+  etat.reglages.dernierExport = date;
   enregistrer();
-}
-
-/** Lit un export : renvoie les données ou lève une erreur lisible. */
-export function lireExport(texte) {
-  let d;
-  try { d = JSON.parse(texte); } catch { throw new Error("Ce fichier n'est pas un export Logger"); }
-  if (d?.format !== 'logger-export' || !Array.isArray(d.calendriers) || !Array.isArray(d.saisies)) throw new Error("Ce fichier n'est pas un export Logger");
-  return d;
 }
 
 function copieDeSecours() {
@@ -171,50 +256,62 @@ export function restaurerCopie() {
   const c = JSON.parse(localStorage.getItem(CLE_COPIE));
   const code = etat.reglages.code;
   etat = normaliser(c.etat);
-  if (code) etat.reglages.code = code;
+  if (code) etat.reglages.code = code; else delete etat.reglages.code;
   localStorage.removeItem(CLE_COPIE);
   enregistrer();
 }
 
-/** mode : 'ajouter' (calendriers absents seulement) ou 'remplacer'. Renvoie le nombre de calendriers ajoutés. */
+/** mode : 'remplacer' (tout) ou 'fusionner' (ajoute ce qui manque, par identifiant). */
 export function importer(d, mode) {
+  if (d?.version !== 2 || !Array.isArray(d.notes) || !Array.isArray(d.types)) throw new Error("Ce fichier n'est pas un export Logger v2");
   copieDeSecours();
   const code = etat.reglages.code;
   if (mode === 'remplacer') {
-    etat = normaliser({ calendriers: d.calendriers, saisies: d.saisies, liens: d.liens || [], reglages: { ...(d.reglages || {}) } });
-    if (code) etat.reglages.code = code; else delete etat.reglages.code;
-    enregistrer();
-    return etat.calendriers.length;
+    etat = normaliser(d);
+  } else {
+    const ajoute = (cle) => {
+      const ids = new Set(etat[cle].map((x) => x.id));
+      etat[cle].push(...(d[cle] || []).filter((x) => !ids.has(x.id)));
+    };
+    for (const cle of ['types', 'notes', 'blocs', 'pauses', 'etiquettes', 'personnes']) ajoute(cle);
+    etat.jours = { ...(d.jours || {}), ...etat.jours };
   }
-  const presents = new Set(etat.calendriers.map((c) => c.id));
-  const nouveaux = d.calendriers.filter((c) => !presents.has(c.id));
-  const ids = new Set(nouveaux.map((c) => c.id));
-  etat.calendriers.push(...nouveaux.map(normaliserCal));
-  etat.saisies.push(...d.saisies.filter((s) => ids.has(s.cal)));
-  const tous = new Set(etat.calendriers.map((c) => c.id));
-  for (const l of d.liens || []) {
-    if ((ids.has(l.a) || ids.has(l.b)) && tous.has(l.a) && tous.has(l.b) && !etat.liens.some((x) => x.id === l.id)) etat.liens.push(l);
-  }
+  if (code) etat.reglages.code = code; else delete etat.reglages.code;
   enregistrer();
-  return nouveaux.length;
 }
 
 export function toutEffacer() {
+  const code = etat.reglages.code;
+  etat = vierge();
+  if (code) etat.reglages.code = code;
+  enregistrer();
+}
+
+export function effacerAvecCode() {
   etat = vierge();
   enregistrer();
 }
 
-// --- Exemple -------------------------------------------------------------------------
+// --- Exemple -----------------------------------------------------------------------------------
 
-export function chargerExemple(exemple) {
-  etat.calendriers.push(...exemple.calendriers.map(normaliserCal));
-  etat.saisies.push(...exemple.saisies);
-  etat.liens.push(...exemple.liens);
+export function chargerExemple(ex) {
+  etat.notes.push(...ex.notes);
+  etat.blocs.push(...ex.blocs);
+  for (const p of ex.personnes) if (!etat.personnes.some((x) => x.id === p.id)) etat.personnes.push(p);
   enregistrer();
 }
 
-export const aDesExemples = () => etat.calendriers.some((c) => c.exemple);
+export const aDesExemples = () => etat.notes.some((n) => n.exemple);
 
 export function retirerExemples() {
-  for (const c of etat.calendriers.filter((x) => x.exemple)) supprimerCalendrier(c.id);
+  const blocsEx = new Set(etat.notes.filter((n) => n.exemple && n.bloc).map((n) => n.bloc));
+  etat.notes = etat.notes.filter((n) => !n.exemple);
+  etat.blocs = etat.blocs.filter((b) => !blocsEx.has(b.id));
+  etat.personnes = etat.personnes.filter((p) => !p.exemple);
+  enregistrer();
 }
+
+/** Pour les tests : remplace l'état en mémoire. */
+export function _remplacer(e) { etat = normaliser(e); }
+
+export const _minutes = minutes;
