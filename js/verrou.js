@@ -1,7 +1,7 @@
-// Verrouillage de l'appli par un code à 4 chiffres. Pas de chiffrement : les données
+// Verrouillage de l'appli par un code à 6 chiffres (les anciens codes à 4 chiffres restent valables). Pas de chiffrement : les données
 // restent lisibles dans le stockage du navigateur ; le code évite seulement l'ouverture.
 
-export const LONGUEUR = 4;
+export const LONGUEUR = 6;
 export const DELAI = 5 * 60 * 1000; // verrouillage après 5 min en arrière-plan
 
 export async function empreinte(code, sel) {
@@ -23,11 +23,12 @@ export function tropSimple(code) {
 
 const EFFACER = '<svg viewBox="0 0 24 24"><path d="M9 6h10a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 19 18H9l-5.5-6z"/><path d="M12.5 9.5l5 5M17.5 9.5l-5 5"/></svg>';
 
-/** Pavé numérique dans un conteneur. onComplet(code, recommencer) est appelé à 4 chiffres. */
-export function pave(conteneur, onComplet) {
+/** Pavé numérique dans un conteneur. onComplet(code, recommencer) est appelé quand les chiffres sont tous saisis. */
+export function pave(conteneur, onComplet, longueur = LONGUEUR) {
   let code = '';
+  conteneur.classList.add('zone-code');
   conteneur.insertAdjacentHTML('beforeend', `
-    <div class="points">${'<i></i>'.repeat(LONGUEUR)}</div>
+    <div class="points">${'<i></i>'.repeat(longueur)}</div>
     <div class="pave">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => `<button type="button" data-n="${n}">${n}</button>`).join('')}
       <button type="button" class="vide-touche" tabindex="-1"></button><button type="button" data-n="0">0</button>
       <button type="button" data-n="x" aria-label="Effacer">${EFFACER}</button></div>`);
@@ -40,9 +41,9 @@ export function pave(conteneur, onComplet) {
   };
   const taper = (n) => {
     if (n === 'x') code = code.slice(0, -1);
-    else if (code.length < LONGUEUR) code += n;
+    else if (code.length < longueur) code += n;
     dessiner();
-    if (code.length === LONGUEUR) setTimeout(() => onComplet(code, recommencer), 120);
+    if (code.length === longueur) setTimeout(() => onComplet(code, recommencer), 120);
   };
   conteneur.querySelector('.pave').addEventListener('click', (ev) => {
     const b = ev.target.closest('[data-n]');

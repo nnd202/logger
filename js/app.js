@@ -723,8 +723,8 @@ function vueReglages() {
     ${bandeau({ retour: '#/', titre: 'Réglages' })}
     <div class="carte">
       <h3>Code de verrouillage <small>${r.code ? 'activé' : 'aucun'}</small></h3>
-      <p class="aide">Un code à 4 chiffres demandé à l'ouverture et après 5 minutes en arrière-plan. Il empêche d'ouvrir l'appli, mais les données ne sont pas chiffrées.</p>
-      <button class="btn btn-large ${r.code ? '' : 'btn-principal'}" data-action="code">${I.cadenas} ${r.code ? 'Changer le code' : 'Créer un code'}</button>
+      <p class="aide">Un code à 6 chiffres demandé à l'ouverture et après 5 minutes en arrière-plan. Il empêche d'ouvrir l'appli, mais les données ne sont pas chiffrées.</p>
+      <button class="btn btn-large ${r.code ? '' : 'btn-principal'}" data-action="code">${I.cadenas} ${r.code ? (r.code.longueur || 4) < V.LONGUEUR ? 'Passer à un code à 6 chiffres' : 'Changer le code' : 'Créer un code'}</button>
       ${r.code ? '<div class="actions-sec"><button class="lien danger" data-action="supprimer-code">Supprimer le code</button></div>' : ''}
     </div>
     <div class="carte">
@@ -802,7 +802,7 @@ async function partagerFichier(nom, contenu) {
 
 function fenetreCode() {
   let premier = null;
-  ouvrirFenetre('<div class="pile"><h2 data-titre>Nouveau code</h2><p class="aide centre" data-aide>Choisis 4 chiffres.</p><div data-pave></div></div>');
+  ouvrirFenetre('<div class="pile"><h2 data-titre>Nouveau code</h2><p class="aide centre" data-aide>Choisis 6 chiffres.</p><div data-pave></div></div>');
   const titre = couche.querySelector('[data-titre]'), aide = couche.querySelector('[data-aide]');
   V.pave(couche.querySelector('[data-pave]'), async (code, recommencer) => {
     if (!premier) {
@@ -812,7 +812,7 @@ function fenetreCode() {
     }
     if (code !== premier) { premier = null; titre.textContent = 'Nouveau code'; aide.textContent = 'Les deux codes diffèrent. Recommence.'; return recommencer(true); }
     const sel = Math.random().toString(36).slice(2, 10);
-    S.get().reglages.code = { sel, empreinte: await V.empreinte(code, sel) };
+    S.get().reglages.code = { sel, empreinte: await V.empreinte(code, sel), longueur: V.LONGUEUR };
     S.enregistrer(); fermer(); route(); toast('Code enregistré');
   });
 }
@@ -831,7 +831,8 @@ function verrouiller() {
     verrouEl.hidden = true;
     verrouEl.innerHTML = '';
     route();
-  });
+    if ((code.longueur || 4) < V.LONGUEUR) toast('Ton code a 4 chiffres : passe-le à 6 dans Réglages', { libelle: 'Changer', action: () => aller('#/reglages') });
+  }, code.longueur || 4);
   verrouEl.querySelector('[data-f="oubli"]').onclick = (ev) => {
     const b = ev.currentTarget;
     if (!b.dataset.arme) {

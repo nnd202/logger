@@ -291,3 +291,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--a); outline
 .exemple-bandeau .lien, .rappel .lien { white-space: nowrap; }
 /* Messages en haut : le bas de l'écran est occupé par les fenêtres de saisie */
 .toast { bottom: auto; top: calc(14px + env(safe-area-inset-top)); }
+
+/* Pavé du code : points et touches toujours centrés, dans la fenêtre comme sur l'écran verrouillé */
+.zone-code { display: flex; flex-direction: column; align-items: center; gap: 18px; width: 100%; }
+.zone-code .points { justify-content: center; margin: 0; }
+.zone-code .pave { margin: 0; }
+.points { gap: 10px; }
+.points i { width: 13px; height: 13px; }
+@media (max-width: 340px) { .pave { grid-template-columns: repeat(3, 64px); } .pave button { width: 64px; height: 64px; } }
