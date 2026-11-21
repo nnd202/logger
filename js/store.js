@@ -1,5 +1,5 @@
 // État de Logger v2 : un seul journal de notes, gardé en JSON dans le stockage du navigateur.
-import { uid, horodatage, jourDe, minutes } from './calc.js';
+import { uid, horodatage, jourDe, minutes, ajouterJours, ajouterMinutes } from './calc.js';
 import { typesDeDepart, etiquettesDeDepart, DEBUT_JOURNEE, ICONES, ICONE_FAMILLE, ECHELLE_COPING } from './catalogue.js';
 import * as C from './crypto.js';
 import { ouvrirStockage } from './stockage.js';
@@ -53,7 +53,8 @@ export function vierge() {
     pauses: [], // [{ id, du, au | null }]
     etiquettes: etiquettesDeDepart(),
     personnes: [], // [{ id, nom }]
-    reglages: { echelleHeure: 48, planningOuvert: true },
+    reglages: { echelleHeure: 48, planningOuvert: true, rythme: rythmeDeDepart() },
+    questionnaires: [], // [{ id, q, le, reponses, score }]
     colonnes: {}, // { 'AAAA-MM-JJ': [id de type, …] } : ordre des colonnes du planning, fixé par l'utilisateur
   };
 }
@@ -63,6 +64,8 @@ function normaliser(e) {
   const r = { ...v, ...(e || {}) };
   r.reglages = { ...v.reglages, ...(e?.reglages || {}) };
   if (!r.colonnes || typeof r.colonnes !== 'object') r.colonnes = {};
+  if (!Array.isArray(r.questionnaires)) r.questionnaires = [];
+  if (!r.reglages.rythme?.types?.length) r.reglages.rythme = rythmeDeDepart();
   // Types ajoutés au catalogue après coup : on les complète sans toucher aux réglages existants.
   const ids = new Set(r.types.map((t) => t.id));
   for (const t of v.types) if (!ids.has(t.id)) r.types.push(t);
@@ -266,17 +269,140 @@ export function enPause(date) {
   return etat.pauses.find((p) => p.du <= date && (!p.au || date <= p.au)) || null;
 }
 
-/** Renseigné : au moins une note, ou « journée calme ». */
+/** Renseigné : au moins une note, un débrief, un bilan, ou « journée calme ». */
 export function statutJour(date) {
-  if (notesDuJour(date).length) return 'renseigne';
+  if (notesDuJour(date).length || etat.jours[date]?.nuit || etat.jours[date]?.bilan) return 'renseigne';
   if (etat.jours[date]?.calme) return 'calme';
   if (enPause(date)) return 'pause';
   return 'vide';
 }
 
 export function basculerCalme(date) {
-  if (etat.jours[date]?.calme) delete etat.jours[date];
-  else etat.jours[date] = { calme: true };
+  if (etat.jours[date]?.calme) delete jour(date).calme;
+  else jour(date).calme = true;
+  nettoyerJour(date);
+  enregistrer();
+}
+
+// --- Jours : type, nuit, bilan -----------------------------------------------------------------------
+
+const jour = (d) => (etat.jours[d] ||= {});
+function nettoyerJour(d) { if (etat.jours[d] && !Object.keys(etat.jours[d]).length) delete etat.jours[d]; }
+
+/** Types de jour et heures visées. coucher / lever : la nuit qui mène à un jour de ce type. semaine[0] = dimanche. */
+export function rythmeDeDepart() {
+  const t = (id, nom, icone) => ({ id, nom, icone, coucher: null, lever: null });
+  return {
+    types: [t('travail', 'Travail', '💼'), t('teletravail', 'Télétravail', '🏠'), t('conge', 'Congé', '🌴'), t('weekend', 'Week-end', '🌿')],
+    semaine: ['weekend', 'travail', 'travail', 'travail', 'travail', 'travail', 'weekend'],
+  };
+}
+export const rythme = () => etat.reglages.rythme;
+const typeParId = (id) => etat.reglages.rythme.types.find((t) => t.id === id);
+const typeDeLaSemaine = (date) => typeParId(etat.reglages.rythme.semaine[new Date(`${date}T12:00`).getDay()]) || etat.reglages.rythme.types[0];
+
+/** Type d'un jour : celui choisi pour ce jour, sinon celui de la semaine type. */
+export const typeJour = (date) => typeParId(etat.jours[date]?.typeJour) || typeDeLaSemaine(date);
+export const typeJourChoisi = (date) => !!typeParId(etat.jours[date]?.typeJour);
+
+export function fixerTypeJour(date, id) {
+  if (!id || id === typeDeLaSemaine(date).id) delete jour(date).typeJour; else jour(date).typeJour = id;
+  nettoyerJour(date);
+  enregistrer();
+}
+
+export function ajouterTypeJour(nom, icone = '📅') {
+  const t = { id: uid('tj'), nom, icone, coucher: null, lever: null };
+  etat.reglages.rythme.types.push(t);
+  enregistrer();
+  return t;
+}
+
+export function supprimerTypeJour(id) {
+  const r = etat.reglages.rythme;
+  if (r.types.length <= 1 || r.semaine.includes(id)) return false;
+  r.types = r.types.filter((t) => t.id !== id);
+  for (const [d, j] of Object.entries(etat.jours)) if (j.typeJour === id) { delete j.typeJour; nettoyerJour(d); }
+  enregistrer();
+  return true;
+}
+
+export const nuit = (d) => etat.jours[d]?.nuit || null;
+export const bilan = (d) => etat.jours[d]?.bilan || null;
+
+export function enregistrerNuit(d, n) {
+  jour(d).nuit = { ...n, le: horodatage() };
+  enregistrer();
+}
+export function enregistrerBilan(d, b) {
+  jour(d).bilan = { ...b, le: horodatage() };
+  enregistrer();
+}
+export function effacerNuit(d) { delete jour(d).nuit; nettoyerJour(d); enregistrer(); }
+export function effacerBilan(d) { delete jour(d).bilan; nettoyerJour(d); enregistrer(); }
+
+/** Une carte (débrief, bilan) fermée sans être remplie : elle ne revient pas ce jour-là. */
+export const carteFermee = (d, quoi) => !!etat.jours[d]?.fermes?.[quoi];
+export function fermerCarte(d, quoi) {
+  jour(d).fermes = { ...(jour(d).fermes || {}), [quoi]: true };
+  enregistrer();
+}
+
+/** Endormissement de la nuit qui mène au jour d (noté entre la veille midi et ce jour midi). */
+export function endormissementAvant(d) {
+  const a = `${ajouterJours(d, -1)}T12:00`, b = `${d}T12:00`;
+  return etat.notes.filter((n) => type(n.type)?.endormissement && n.debut >= a && n.debut < b).sort(parDebut)[0] || null;
+}
+
+/** Réveils notés avec une heure pendant la nuit qui mène au jour d. */
+export function reveilsNotes(d) {
+  const e = endormissementAvant(d);
+  const a = e ? e.debut : `${ajouterJours(d, -1)}T20:00`, b = `${d}T12:00`;
+  return etat.notes.filter((n) => n.type === 'reveil' && n.debut > a && n.debut < b);
+}
+
+/** Heures visées pour la nuit qui mène au jour d, selon le type de ce jour. */
+export function nuitVisee(d) {
+  const t = typeJour(d);
+  if (!t.coucher || !t.lever) return null;
+  return { coucher: t.coucher >= '12:00' ? `${ajouterJours(d, -1)}T${t.coucher}` : `${d}T${t.coucher}`, lever: `${d}T${t.lever}` };
+}
+
+/** Temps passé éveillé pendant la nuit, en minutes, pour chaque choix du débrief. */
+export const EVEILLE = [
+  { min: 10, nom: 'Moins de 15 min' },
+  { min: 22, nom: '15 à 30 min' },
+  { min: 45, nom: '30 min à 1 h' },
+  { min: 80, nom: "Plus d'1 h" },
+];
+
+/**
+ * La nuit qui mène au jour d : endormi (essai + temps pour s'endormir) → réveil final (débrief).
+ * À défaut, les heures visées complètent ; fin = null si le réveil est inconnu. null si on ne sait rien.
+ */
+export function nuitDe(d) {
+  const e = endormissementAvant(d);
+  const v = nuitVisee(d);
+  const n = nuit(d);
+  const debut = e ? ajouterMinutes(e.debut, e.latence ?? 0) : v?.coucher || null;
+  let fin = n?.reveil ? `${d}T${n.reveil}` : v?.lever || null;
+  if (!debut) return null;
+  if (fin && fin <= debut) fin = null;
+  const sommeil = fin ? minutes(fin) - minutes(debut) - (n?.eveille || 0) : null;
+  return { debut, fin, debutReel: !!e, finReelle: !!n?.reveil, sommeil, reveils: n?.reveils ?? null, qualite: n?.qualite ?? null };
+}
+
+// --- Questionnaires --------------------------------------------------------------------------------
+
+export const passages = (q) => etat.questionnaires.filter((x) => !q || x.q === q).sort((a, b) => a.le.localeCompare(b.le));
+export function enregistrerPassage(q, reponses, score) {
+  const p = { id: uid('q'), q, le: horodatage(), reponses, score };
+  etat.questionnaires.push(p);
+  enregistrer();
+  return p;
+}
+export function supprimerPassage(id) {
+  etat.questionnaires = etat.questionnaires.filter((x) => x.id !== id);
   enregistrer();
 }
 
@@ -413,7 +539,7 @@ export function importer(d, mode) {
       const ids = new Set(etat[cle].map((x) => x.id));
       etat[cle].push(...(d[cle] || []).filter((x) => !ids.has(x.id)));
     };
-    for (const cle of ['types', 'notes', 'pauses', 'etiquettes', 'personnes']) ajoute(cle);
+    for (const cle of ['types', 'notes', 'pauses', 'etiquettes', 'personnes', 'questionnaires']) ajoute(cle);
     etat.jours = { ...(d.jours || {}), ...etat.jours };
     etat.colonnes = { ...(d.colonnes || {}), ...etat.colonnes };
   }

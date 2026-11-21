@@ -5,10 +5,11 @@ import * as S from './store.js';
 import * as V from './verrou.js';
 import * as C from './crypto.js';
 import { exemple } from './demo.js';
+import { QUESTIONNAIRES, questionnaire, bande, AIDE_URGENCE } from './questionnaires.js';
 import { activerBulles, teinte } from './graph.js';
 import { FAMILLES, famille, SAISIE, CERCLES, FACETTES, MOMENTS, AIDE, DEBUT_JOURNEE, LATENCES, ZONE_MIN, SUGGESTIONS } from './catalogue.js';
 import {
-  aujourdhui, heureMaintenant, ajouterJours, jourSemaine, dateCourte, dateNum, dateLongue, JOURS_COURTS,
+  aujourdhui, heureMaintenant, ajouterJours, jourSemaine, dateCourte, dateNum, dateLongue, JOURS_COURTS, JOURS, ecartJours,
   horodatage, minutes, ajouterMinutes, jourDe, heureDe, texteDuree, pluriel, ilYA, majuscule,
 } from './calc.js';
 
@@ -33,6 +34,7 @@ const I = {
   cadenas: '<svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>',
   stop: '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>',
   moins: '<svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg>',
+  questionnaire: '<svg viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="17" rx="2.5"/><path d="M9 4.5V3.5h6v1M8.5 11l1.5 1.5 3-3M8.5 16.5h7"/></svg>',
   guide: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.5a2.5 2.5 0 1 1 3.4 2.3c-.6.3-1 .8-1 1.5v.4M12 16.8v.2"/></svg>',
 };
 
@@ -70,6 +72,9 @@ function route() {
   else if (h === '#/reglages/types') { vue = 'reglages'; vueTypes(); }
   else if (h === '#/reglages/etiquettes') { vue = 'reglages'; vueEtiquettes(); }
   else if (h === '#/guide') { vue = 'reglages'; vueGuide(); }
+  else if (h === '#/reglages/rythme') { vue = 'reglages'; vueRythme(); }
+  else if (h === '#/questionnaires') { vue = 'questionnaires'; vueQuestionnaires(); }
+  else if (h.startsWith('#/questionnaires/')) { vue = 'questionnaires'; vueHistorique(h.slice(17)); }
   else { jourAffiche = auj(); vueJour(); }
   dessinerBarre(vue);
 }
@@ -83,9 +88,10 @@ const lienJour = (d) => (d === auj() ? '#/' : `#/j/${d}`);
 function dessinerBarre(vue) {
   barre.hidden = false;
   barre.innerHTML = `
-    <button class="${vue === 'jour' ? 'actif' : ''}" data-barre="#/">${I.jour}<span>Journée</span></button>
+    <div class="barre-cote"><button class="${vue === 'jour' ? 'actif' : ''}" data-barre="#/">${I.jour}<span>Journée</span></button>
+    <button class="${vue === 'questionnaires' ? 'actif' : ''}" data-barre="#/questionnaires">${I.questionnaire}<span>Questionnaires</span></button></div>
     <button class="barre-noter" data-barre="noter" aria-label="Noter">${I.plus}</button>
-    <button class="${vue === 'reglages' ? 'actif' : ''}" data-barre="#/reglages">${I.reglages}<span>Réglages</span></button>`;
+    <div class="barre-cote"><button class="${vue === 'reglages' ? 'actif' : ''}" data-barre="#/reglages">${I.reglages}<span>Réglages</span></button></div>`;
 }
 
 function bandeau({ retour, petit, titre }) {
@@ -179,6 +185,11 @@ function vueJour() {
   const titre = d === a ? "Aujourd'hui" : d === ajouterJours(a, -1) ? 'Hier' : majuscule(dateCourte(d));
   const encours = S.enCours();
   const ouvert = S.reglages().planningOuvert;
+  const heure = new Date().getHours();
+  const hier = ajouterJours(a, -1);
+  const carteNuit = d === a && heure < 12 && !S.nuit(d) && !S.carteFermee(d, 'nuit') && statut !== 'pause';
+  const carteBilan = d === a && heure >= 19 && !S.bilan(d) && !S.carteFermee(d, 'bilan') && statut !== 'pause';
+  const bilanHier = carteNuit && !S.bilan(hier) && !S.carteFermee(hier, 'bilan') && S.statutJour(hier) !== 'pause';
 
   app.innerHTML = `
     <header class="bandeau-tete bandeau-jour">
@@ -189,6 +200,16 @@ function vueJour() {
       </div>
       ${pastillesJours(d)}
     </header>
+    ${infosJour(d, carteNuit, carteBilan)}
+    ${carteNuit ? `<div class="carte-moment matin">
+      <div><b>☀️ Débrief de la nuit</b><small>Endormissement, réveils, comment c'était. Sans regarder l'heure.</small></div>
+      <div class="cm-actions"><button class="btn btn-principal" data-action="debrief" data-d="${d}">Faire le débrief</button><button class="lien discret" data-action="fermer-carte" data-quoi="nuit" data-d="${d}">Pas aujourd'hui</button></div>
+      ${bilanHier ? `<button class="lien" data-action="bilan" data-d="${hier}">Le bilan d'hier n'est pas fait : le faire</button>` : ''}
+    </div>` : ''}
+    ${carteBilan ? `<div class="carte-moment soir">
+      <div><b>🌙 Bilan de la journée</b><small>${resumeCourt(d)}</small></div>
+      <div class="cm-actions"><button class="btn btn-principal" data-action="bilan" data-d="${d}">Faire le bilan</button><button class="lien discret" data-action="fermer-carte" data-quoi="bilan" data-d="${d}">Pas ce soir</button></div>
+    </div>` : ''}
     ${encours.length ? `<div class="en-cours">${encours.map((n) => `<div class="carte-encours" style="--c:${couleurDe(n)}">
         <button class="ouvrir" data-action="note" data-id="${n.id}"><b><i class="pastille-mini"></i>${esc(nomType(n.type))}</b><small>en cours depuis ${sansZero(heureDe(n.debut))} · ${texteDuree(dureeNote(n))}</small></button>
         <button class="btn btn-stop" data-action="arreter" data-id="${n.id}">${I.stop} J'arrête</button></div>`).join('')}</div>` : ''}
@@ -197,7 +218,7 @@ function vueJour() {
         ${miniFrise(d, affichees)}
         <span class="planning-bascule">${ouvert ? 'Replier le planning' : 'Déployer le planning'} ${I.bas}</span>
       </button>
-      ${ouvert ? (affichees.length ? planning(d, affichees) : '<p class="vide">Rien à placer sur le planning.</p>') : ''}
+      ${ouvert ? (affichees.length || S.nuitDe(d) || S.nuitDe(ajouterJours(d, 1)) ? planning(d, affichees) : '<p class="vide">Rien à placer sur le planning.</p>') : ''}
     </section>
     ${!S.reglages().code ? `<div class="rappel-code">${I.cadenas}<span>Aucun code : l'appli s'ouvre sans protection.</span><button class="lien" data-action="code">Créer un code</button></div>` : ''}
     ${statut === 'pause' ? `<div class="statut-jour statut-pause"><span>Pause du suivi depuis le ${dateNum(pause.du)}</span><button class="lien" data-action="fin-pause">Reprendre</button></div>` : ''}
@@ -270,7 +291,7 @@ function planning(d, notes) {
   const debutM = (n) => Math.max(zero, minutes(n.debut));
   const finM = (n) => Math.min(zero + 1440, n.enCours ? now : n.fin ? minutes(n.fin) : minutes(n.debut));
   let h0 = 0, h1 = 24;
-  if (resserre) {
+  if (resserre && notes.length) {
     h0 = Math.max(0, Math.floor(Math.min(...notes.map((n) => h(debutM(n))))) - 1);
     h1 = Math.min(24, Math.ceil(Math.max(...notes.map((n) => h(finM(n))))) + 1);
     if (h1 - h0 < 4) h1 = Math.min(24, h0 + 4);
@@ -278,6 +299,20 @@ function planning(d, notes) {
   const OFF = 18; // marge haute et basse : les pastilles du bord ne sont pas coupées
   const y = (m) => (h(m) - h0) * px + OFF;
   const hauteur = (h1 - h0) * px + 2 * OFF;
+  // La nuit, en fond : déduite de l'endormissement et du réveil du débrief ; à défaut, des heures visées (hachurée).
+  const nuits = [];
+  const ajouterNuit = (n) => {
+    if (!n) return;
+    const a = Math.max(zero, minutes(n.debut));
+    const b = Math.min(zero + 1440, n.fin ? minutes(n.fin) : zero + 1440);
+    if (!n.fin && minutes(n.debut) < zero) return; // nuit d'hier sans réveil connu : on ne devine pas
+    const bas = Math.max(zero + h0 * 60, a), haut = Math.min(zero + h1 * 60, b);
+    if (haut > bas) nuits.push({ top: y(bas), h: y(haut) - y(bas), reelle: n.debutReel || n.finReelle });
+  };
+  ajouterNuit(S.nuitDe(d));
+  ajouterNuit(S.nuitDe(ajouterJours(d, 1)));
+  const fondNuit = nuits.map((z) => `<div class="pl-nuit ${z.reelle ? '' : 'visee'}" style="top:${z.top}px;height:${z.h}px"></div>`).join('');
+  const traitNuit = nuits.map((z) => `<i class="pl-nuit-g ${z.reelle ? '' : 'visee'}" style="top:${z.top}px;height:${z.h}px"></i>`).join('');
   // Colonnes dans l'ordre fixé pour ce jour : rien ne bouge tout seul, un nouveau type s'ajoute à la fin,
   // et l'appui long sur une icône du haut permet de les ranger.
   const types = S.ordreColonnes(d, notes);
@@ -307,13 +342,13 @@ function planning(d, notes) {
       <span class="frise-zoom"><span>Hauteur</span><button class="btn-icone petit" data-action="zoom" data-pas="-1" aria-label="Moins haut">${I.moins}</button><button class="btn-icone petit" data-action="zoom" data-pas="1" aria-label="Plus haut">${I.plus}</button></span>
     </div>
     <div class="pl" data-zero="${zero}" data-h0="${h0}" data-h1="${h1}" data-px="${px}" data-off="${OFF}" data-jour="${d}">
-      <div class="pl-gouttiere"><div class="pl-tete"></div><div class="pl-heures" style="height:${hauteur}px">${heures.join('')}${nowGouttiere}</div></div>
+      <div class="pl-gouttiere"><div class="pl-tete"></div><div class="pl-heures" style="height:${hauteur}px">${traitNuit}${heures.join('')}${nowGouttiere}</div></div>
       <div class="pl-defile">
         <div class="pl-cols" style="--n:${types.length + 1}">
           <div class="pl-tetes">${types.map((tid) => `<button class="pl-entete" style="--c:${famille(S.type(tid)?.famille)?.couleur}" data-entete="${tid}" aria-label="${esc(nomType(tid))}">${esc(S.type(tid)?.icone || '•')}</button>`).join('')}
             <button class="pl-entete ajout" data-action="noter-ici" aria-label="Noter un autre type">${I.plus}</button></div>
           <div class="pl-corps" style="height:${hauteur}px;background-size:100% ${px}px;background-position:0 ${OFF}px">
-            ${colonnes}<div class="plc plc-ajout" data-type=""></div>
+            ${fondNuit}${colonnes}<div class="plc plc-ajout" data-type=""></div>
             ${ligneNow}
           </div>
         </div>
@@ -327,6 +362,7 @@ function planning(d, notes) {
           <li><span class="pln-demo anneau"></span>Anneau seul : une envie (anneau épais : cédée).</li>
           <li><span class="pln-demo approx"></span>Pointillés : heure approximative.</li>
           <li><span class="pln-demo barre"></span>Barre : la durée.</li>
+          <li><span class="pln-demo nuit"></span>Fond bleuté : la nuit (d'après l'endormissement et le débrief ; hachuré : d'après tes heures visées).</li>
           <li>Toucher une icône du haut : son nom et sa famille. Appui long sur une icône du haut : ranger la colonne ailleurs.</li>
           <li>Toucher une pastille : sa fiche. Appui long sur la pastille : la déplacer (son contour passe en pointillés).</li>
           <li>Appui long sur la poignée sous la pastille, puis tirer : la durée (la barre passe en pointillés ; remonter jusqu'à la pastille l'annule). L'heure de fin s'écrit au bas de la barre.</li>
@@ -587,6 +623,345 @@ function brancherPlanning() {
     col.append(empreinte);
     navigator.vibrate?.(5);
   });
+}
+
+// --- Rythme, débrief du matin, bilan du soir -----------------------------------------------------
+
+/** Petite ligne sous le bandeau : type du jour, nuit, bilan. Chaque élément s'ouvre d'un toucher. */
+function infosJour(d, carteNuit, carteBilan) {
+  const tj = S.typeJour(d);
+  const n = S.nuit(d);
+  const nd = S.nuitDe(d);
+  const b = S.bilan(d);
+  const e = S.endormissementAvant(d);
+  const a = auj();
+  const morceaux = [`<button class="info-jour" data-action="type-jour" aria-label="Type de jour">${esc(tj.icone)} ${esc(tj.nom)}</button>`];
+  if (n || e) {
+    const bouts = [nd?.sommeil && nd.debutReel && nd.finReelle ? `≈ ${texteDuree(nd.sommeil)}` : 'Nuit'];
+    if (n?.reveils != null) bouts.push(n.reveils === 0 ? 'sans réveil' : `${n.reveils === 3 ? '3+' : n.reveils} réveil${n.reveils > 1 ? 's' : ''}`);
+    if (n?.qualite != null) bouts.push(`${n.qualite}/10`);
+    morceaux.push(`<button class="info-jour nuit" data-action="debrief" data-d="${d}">🌙 ${bouts.join(' · ')}</button>`);
+  } else if (!carteNuit && S.statutJour(d) !== 'pause') {
+    morceaux.push(`<button class="info-jour vide" data-action="debrief" data-d="${d}">${I.plus} Nuit</button>`);
+  }
+  if (b) morceaux.push(`<button class="info-jour bilan" data-action="bilan" data-d="${d}">Journée${b.note != null ? ` ${b.note}/10` : ' : bilan fait'}</button>`);
+  else if (!carteBilan && (d < a || new Date().getHours() >= 19) && S.statutJour(d) !== 'pause') {
+    morceaux.push(`<button class="info-jour vide" data-action="bilan" data-d="${d}">${I.plus} Bilan</button>`);
+  }
+  return `<div class="infos-jour">${morceaux.join('')}</div>`;
+}
+
+/** Les faits du jour, sans rien à remplir (bilan du soir). */
+function faitsDuJour(d) {
+  const notes = S.notesDuJour(d);
+  const fam = (f) => notes.filter((n) => S.type(n.type)?.famille === f);
+  const lignes = [];
+  const envies = fam('envie');
+  if (envies.length) {
+    const iss = envies.map((n) => S.issueEnvie(n, auj())?.issue);
+    const ced = iss.filter((x) => x === 'cede').length;
+    const non = envies.length - ced;
+    lignes.push(['🌊', `${pluriel(envies.length, 'envie')}${non ? ` · ${non} non cédée${non > 1 ? 's' : ''}${d < auj() ? '' : " pour l'instant"}` : ''}${ced ? ` · ${ced} cédée${ced > 1 ? 's' : ''}` : ''}`]);
+  }
+  const copings = fam('coping');
+  if (copings.length) {
+    const duree = copings.reduce((t, n) => t + dureeNote(n), 0);
+    lignes.push(['🔁', `${pluriel(copings.length, 'coping')}${duree ? ` · ${texteDuree(duree)} en tout` : ''}`]);
+  }
+  const acts = fam('activite');
+  if (acts.length) {
+    const pl = acts.filter((n) => n.plaisir != null);
+    lignes.push(['📌', `${acts.map((n) => n.activite || nomType(n.type)).filter((x, i, l) => l.indexOf(x) === i).slice(0, 4).join(', ')}${pl.length ? ` · plaisir ${Math.round(pl.reduce((t, n) => t + n.plaisir, 0) / pl.length * 10) / 10}/10` : ''}`]);
+  }
+  const forts = [...fam('etat'), ...fam('corps')].filter((n) => n.intensite != null);
+  if (forts.length) {
+    const max = new Map();
+    for (const n of forts) max.set(n.type, Math.max(max.get(n.type) ?? 0, n.intensite));
+    lignes.push(['🌡️', [...max].sort((x, y) => y[1] - x[1]).slice(0, 3).map(([t, v]) => `${nomType(t)} ${v}`).join(', ')]);
+  }
+  const aides = fam('aide');
+  if (aides.length) lignes.push(['🌱', `${pluriel(aides.length, 'action aidante', 'actions aidantes')}`]);
+  const nd = S.nuitDe(d);
+  if (nd?.sommeil && nd.debutReel && nd.finReelle) lignes.push(['🌙', `La nuit d'avant : ≈ ${texteDuree(nd.sommeil)}`]);
+  return lignes;
+}
+
+function resumeCourt(d) {
+  const l = faitsDuJour(d);
+  return l.length ? esc(l.slice(0, 2).map((x) => x[1]).join(' · ')) : 'Une note de 0 à 10 et, si tu veux, une phrase.';
+}
+
+const grille010 = (nom, val, bas, haut) => `<div class="grille-intensite petite" data-zone="${nom}" style="grid-template-columns: repeat(11, 1fr)">${Array.from({ length: 11 }, (_, v) => `<button type="button" class="${val === v ? 'choisi' : ''}" data-v="${v}" style="--k:${v / 10}">${v}</button>`).join('')}</div>
+  <div class="echelle-legende"><span>${esc(bas)}</span><span>${esc(haut)}</span></div><input type="hidden" name="${nom}" value="${val ?? ''}">`;
+const puces1 = (nom, liste, val) => `<div class="choix" data-zone="${nom}">${liste.map((x) => `<button type="button" class="puce ${val === x.v ? 'choisi' : ''}" data-v="${x.v}">${esc(x.t)}</button>`).join('')}</div><input type="hidden" name="${nom}" value="${val ?? ''}">`;
+const nombreOuNull = (v) => (v === '' || v == null ? null : Number(v));
+
+/** Débrief de la nuit qui mène au jour d. Tout est facultatif ; rien n'oblige à regarder l'heure. */
+function fenetreDebrief(d) {
+  const e = S.endormissementAvant(d);
+  const n = S.nuit(d) || {};
+  const v = S.nuitVisee(d);
+  const notesReveil = S.reveilsNotes(d).length;
+  const reveils = n.reveils ?? (notesReveil ? Math.min(3, notesReveil) : null);
+  ouvrirFenetre(`<form class="saisie" style="--c:${famille('sommeil').couleur}">
+    <h2><i class="pastille-mini"></i>La nuit <small>${d === auj() ? 'dernière' : `avant le ${dateCourte(d)}`}</small></h2>
+    <div class="saisie-corps">
+      ${e ? `<p class="aide encart">Endormissement noté : essayé de dormir ${e.precision === 'exacte' ? 'à' : 'vers'} ${sansZero(heureDe(e.debut))}${e.latence ? `, environ ${texteDuree(e.latence)} pour s'endormir` : ''}.</p>` : `
+        <p class="titre-choix">Endormissement<em>facultatif</em></p>
+        <label class="champ"><span>J'ai essayé de dormir vers</span><input type="time" name="essai" value="${v ? heureDe(v.coucher) : '23:00'}"></label>
+        <p class="aide">Pour m'endormir, il m'a fallu environ (choisir une durée note l'endormissement) :</p>
+        ${puces1('latence', LATENCES.map((l) => ({ v: l.min, t: l.nom })), null)}`}
+      <p class="titre-choix">Réveils dans la nuit<em>sans regarder l'heure</em></p>
+      ${puces1('reveils', [0, 1, 2, 3].map((k) => ({ v: k, t: k === 3 ? '3 ou plus' : k === 0 ? 'Aucun' : String(k) })), reveils)}
+      ${notesReveil ? `<p class="aide">${pluriel(notesReveil, 'réveil noté', 'réveils notés')} avec une heure cette nuit.</p>` : ''}
+      <div data-eveille ${reveils > 0 ? '' : 'hidden'}><p class="aide">Éveillé(e) en tout, environ :</p>${puces1('eveille', S.EVEILLE.map((x) => ({ v: x.min, t: x.nom })), n.eveille ?? null)}</div>
+      <label class="champ"><span>Réveil final vers <em>facultatif</em></span><input type="time" name="reveil" value="${n.reveil || (v && v.lever <= horodatage() ? heureDe(v.lever) : '')}"></label>
+      <p class="titre-choix">La nuit dans l'ensemble<em>facultatif</em></p>
+      ${grille010('qualite', n.qualite ?? null, 'très mauvaise', 'excellente')}
+      <button class="btn btn-principal btn-large">Enregistrer</button>
+      ${S.nuit(d) ? '<div class="actions-sec"><button type="button" class="lien danger" data-f="effacer">Effacer ce débrief</button></div>' : ''}
+    </div>
+  </form>`, (fd) => {
+    const reveil = fd.get('reveil') || null;
+    if (reveil && `${d}T${reveil}` > horodatage()) return toast("Cette heure n'est pas encore arrivée");
+    const latence = nombreOuNull(fd.get('latence'));
+    if (!e && latence != null) {
+      const essai = fd.get('essai') || '23:00';
+      const debut = `${essai >= '12:00' ? ajouterJours(d, -1) : d}T${essai}`;
+      if (debut > horodatage()) return toast("L'heure d'endormissement n'est pas encore arrivée");
+      S.ajouterNote({ type: 'endormissement', debut, fin: ajouterMinutes(debut, Math.max(ZONE_MIN, latence)), latence, precision: 'vers' });
+    }
+    const nb = nombreOuNull(fd.get('reveils'));
+    S.enregistrerNuit(d, { reveils: nb, eveille: nb ? nombreOuNull(fd.get('eveille')) : null, reveil, qualite: nombreOuNull(fd.get('qualite')) });
+    fermer();
+    setTimeout(() => { route(); toast('Nuit notée'); }, 60);
+  });
+  const f = couche.querySelector('form');
+  brancherChoix(f);
+  f.querySelector('[data-zone="reveils"]').addEventListener('click', () => setTimeout(() => { f.querySelector('[data-eveille]').hidden = !(Number(f.reveils.value) > 0); }));
+  f.querySelector('[data-f="effacer"]')?.addEventListener('click', (ev) => {
+    if (!confirmerDeux(ev.currentTarget, 'Confirmer ?')) return;
+    S.effacerNuit(d); fermer(); route(); toast('Débrief effacé');
+  });
+}
+
+/** Bilan du soir : les faits du jour, une note de 0 à 10, une phrase. */
+function fenetreBilan(d) {
+  const b = S.bilan(d) || {};
+  const faits = faitsDuJour(d);
+  const vide = !S.notesDuJour(d).length;
+  ouvrirFenetre(`<form class="saisie" style="--c:#a82654">
+    <h2>Bilan <small>${d === auj() ? 'de la journée' : `du ${dateCourte(d)}`}</small></h2>
+    <div class="saisie-corps">
+      ${faits.length ? `<ul class="faits-jour">${faits.map(([i, t]) => `<li><span>${i}</span>${esc(t)}</li>`).join('')}</ul>` : '<p class="aide encart">Aucune note ce jour-là. Le bilan suffit à dire que la journée est renseignée.</p>'}
+      <p class="titre-choix">La journée dans l'ensemble</p>
+      ${grille010('note', b.note ?? null, 'très difficile', 'très bonne')}
+      <label class="champ"><span>Une phrase <em>facultatif</em></span><textarea name="phrase" rows="2" placeholder="Ce qui a marqué la journée…">${esc(b.phrase || '')}</textarea></label>
+      ${vide ? '<p class="aide">Rien de particulier ? Une note seule suffit.</p>' : ''}
+      <button class="btn btn-principal btn-large">Enregistrer</button>
+      ${S.bilan(d) ? '<div class="actions-sec"><button type="button" class="lien danger" data-f="effacer">Effacer ce bilan</button></div>' : ''}
+    </div>
+  </form>`, (fd) => {
+    const note = nombreOuNull(fd.get('note'));
+    const phrase = String(fd.get('phrase') || '').trim();
+    if (note == null && !phrase) return toast('Une note ou une phrase, au moins');
+    S.enregistrerBilan(d, { note, phrase });
+    fermer();
+    setTimeout(() => { route(); toast('Bilan noté'); }, 60);
+  });
+  const f = couche.querySelector('form');
+  brancherChoix(f);
+  f.querySelector('[data-f="effacer"]')?.addEventListener('click', (ev) => {
+    if (!confirmerDeux(ev.currentTarget, 'Confirmer ?')) return;
+    S.effacerBilan(d); fermer(); route(); toast('Bilan effacé');
+  });
+}
+
+function fenetreTypeJour(d) {
+  const actuel = S.typeJour(d);
+  const semaine = S.rythme().types.find((t) => t.id === S.rythme().semaine[new Date(`${d}T12:00`).getDay()]);
+  ouvrirFenetre(`<div class="saisie" style="--c:#a82654">
+    <h2>Type de jour <small>${d === auj() ? "aujourd'hui" : dateCourte(d)}</small></h2>
+    <div class="saisie-corps">
+      <div class="grille-types">${S.rythme().types.map((t) => `<button class="btn-type ${t.id === actuel.id ? 'fort' : ''}" data-tj="${t.id}"><span class="emoji">${esc(t.icone)}</span>${esc(t.nom)}</button>`).join('')}</div>
+      <p class="aide">D'après ta semaine type, ce jour est « ${esc(semaine?.nom || '')} ». Ce choix ne change que ce jour-là.</p>
+      <button class="lien" data-f="regler">Régler les types de jour et les heures de sommeil visées ${I.droite}</button>
+    </div>
+  </div>`);
+  couche.querySelector('.fenetre').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-tj]');
+    if (b) { S.fixerTypeJour(d, b.dataset.tj); fermer(); route(); return toast(`${S.typeJour(d).nom}`); }
+    if (ev.target.closest('[data-f="regler"]')) { fermer(false); aller('#/reglages/rythme'); }
+  });
+}
+
+/** Réglages : types de jour, heures visées (la nuit qui mène à un jour de ce type), semaine type. */
+function vueRythme() {
+  const r = S.rythme();
+  const ordreSemaine = [1, 2, 3, 4, 5, 6, 0];
+  app.innerHTML = `
+    ${bandeau({ retour: '#/reglages', petit: 'Réglages', titre: 'Rythme et types de jour' })}
+    <p class="aide" style="margin:0 4px 10px">Pour chaque type de jour, les heures que tu te fixes pour la nuit qui y mène : le coucher la veille, le réveil le matin. Laisse vide si tu n'as pas d'heure fixe. Ces heures dessinent la nuit dans le planning quand rien n'a été noté, et serviront à comparer plus tard.</p>
+    <div class="carte">
+      <h3>Types de jour</h3>
+      ${r.types.map((t) => `<div class="ligne-rythme" data-id="${t.id}">
+        <div class="ligne-etq">
+          <button class="pl-entete choix-icone" data-icone-jour="${t.id}" aria-label="Changer l'icône">${esc(t.icone)}</button>
+          <input data-nom-jour="${t.id}" value="${esc(t.nom)}" autocomplete="off" aria-label="Nom">
+          ${r.semaine.includes(t.id) ? '' : `<button class="lien discret danger" data-suppr-jour="${t.id}">Retirer</button>`}
+        </div>
+        <div class="deux">
+          <label class="champ"><span>Coucher (la veille)</span><input type="time" data-heure="coucher" data-jour="${t.id}" value="${t.coucher || ''}"></label>
+          <label class="champ"><span>Réveil</span><input type="time" data-heure="lever" data-jour="${t.id}" value="${t.lever || ''}"></label>
+        </div>
+      </div>`).join('')}
+      <button class="lien" data-f="ajouter-jour" style="align-self:flex-start">${I.plus} Ajouter un type de jour</button>
+    </div>
+    <div class="carte">
+      <h3>Semaine type <small>modifiable jour par jour dans la journée</small></h3>
+      ${ordreSemaine.map((k) => `<label class="ligne-semaine"><span>${majuscule(JOURS[(k + 6) % 7])}</span>
+        <select data-semaine="${k}">${r.types.map((t) => `<option value="${t.id}" ${r.semaine[k] === t.id ? 'selected' : ''}>${esc(t.icone)} ${esc(t.nom)}</option>`).join('')}</select></label>`).join('')}
+    </div>`;
+  app.querySelectorAll('[data-nom-jour]').forEach((i) => i.addEventListener('change', () => { const v = majuscule(i.value); if (v) { r.types.find((t) => t.id === i.dataset.nomJour).nom = v; S.enregistrer(); toast('Renommé'); } }));
+  app.querySelectorAll('[data-heure]').forEach((i) => i.addEventListener('change', () => { r.types.find((t) => t.id === i.dataset.jour)[i.dataset.heure] = i.value || null; S.enregistrer(); toast('Heure enregistrée'); }));
+  app.querySelectorAll('[data-semaine]').forEach((sel) => sel.addEventListener('change', () => { r.semaine[Number(sel.dataset.semaine)] = sel.value; S.enregistrer(); vueRythme(); toast('Semaine type modifiée'); }));
+  app.querySelectorAll('[data-icone-jour]').forEach((b) => b.addEventListener('click', () => fenetreIcone(r.types.find((t) => t.id === b.dataset.iconeJour), vueRythme)));
+  app.querySelectorAll('[data-suppr-jour]').forEach((b) => b.addEventListener('click', () => { if (!confirmerDeux(b, 'Confirmer ?')) return; S.supprimerTypeJour(b.dataset.supprJour); vueRythme(); toast('Type de jour retiré'); }));
+  app.querySelector('[data-f="ajouter-jour"]').addEventListener('click', () => fenetreNom('Nouveau type de jour', (nom) => { S.ajouterTypeJour(nom); fermer(); vueRythme(); toast('Type de jour ajouté'); }));
+}
+
+// --- Questionnaires -------------------------------------------------------------------------------
+
+function carteAide() {
+  return `<div class="carte carte-aide">
+    <h3>Besoin d'aide ?</h3>
+    <p>${esc(AIDE_URGENCE.texte)}</p>
+    <a class="btn btn-large" href="tel:${AIDE_URGENCE.numero}">📞 Appeler le ${AIDE_URGENCE.numero}</a>
+    <p class="aide">${esc(AIDE_URGENCE.danger)}</p>
+  </div>`;
+}
+
+function vueQuestionnaires() {
+  app.innerHTML = `
+    ${bandeau({ titre: 'Questionnaires' })}
+    <p class="aide" style="margin:0 4px 10px">Des questionnaires validés, à passer quand tu veux. Ils donnent un repère et montrent l'évolution ; ce n'est jamais un diagnostic.</p>
+    ${QUESTIONNAIRES.map((q) => {
+      const ps = S.passages(q.id);
+      const der = ps[ps.length - 1];
+      const ecart = der ? ecartJours(der.le.slice(0, 10), auj()) : null;
+      const b = der ? bande(q, der.score) : null;
+      return `<div class="carte carte-q">
+        <h3><span>${esc(q.titre)} <small>${esc(q.nom)}</small></span><small>${esc(q.duree)}</small></h3>
+        <p class="aide">${esc(q.mesure)}</p>
+        ${der ? `<p class="q-dernier niveau-${b.niveau}"><b>${der.score} ${esc(q.unite)}</b> · ${esc(b.t)} · ${ecart === 0 ? "aujourd'hui" : `il y a ${pluriel(ecart, 'jour')}`}</p>` : ''}
+        <p class="aide">${der && ecart >= q.rythme ? `Conseillé tous les ${q.rythme} jours : c'est le moment de le repasser, si tu veux.` : `Conseillé tous les ${q.rythme} jours.`}</p>
+        <div class="cm-actions"><button class="btn ${der && ecart < q.rythme ? '' : 'btn-principal'}" data-action="passer" data-q="${q.id}">${der ? 'Repasser' : 'Commencer'}</button>
+          ${ps.length ? `<button class="lien" data-action="aller" data-h="#/questionnaires/${q.id}">Historique (${ps.length}) ${I.droite}</button>` : ''}</div>
+      </div>`;
+    }).join('')}
+    ${carteAide()}`;
+}
+
+/** Courbe des scores : une ligne fine, des points, les seuils en pointillés. */
+function courbeScores(q, ps) {
+  const L = 320, H = 140, g = 30, dr = 10, hh = 12, bb = 22;
+  const xs = (i) => (ps.length === 1 ? (g + L - dr) / 2 : g + (i * (L - g - dr)) / (ps.length - 1));
+  const ys = (v) => hh + (1 - v / q.max) * (H - hh - bb);
+  const seuils = q.bandes.slice(0, -1).map((b) => b.max);
+  return `<svg class="courbe-q" viewBox="0 0 ${L} ${H}" role="img" aria-label="Évolution des scores">
+    ${[0, q.max].map((v) => `<text x="${g - 6}" y="${ys(v) + 4}" text-anchor="end">${v}</text>`).join('')}
+    ${seuils.map((v) => `<line x1="${g}" x2="${L - dr}" y1="${ys(v + 0.5)}" y2="${ys(v + 0.5)}" class="seuil"/>`).join('')}
+    <line x1="${g}" x2="${L - dr}" y1="${ys(0)}" y2="${ys(0)}" class="axe"/>
+    ${ps.length > 1 ? `<polyline points="${ps.map((p, i) => `${xs(i)},${ys(p.score)}`).join(' ')}" class="trace"/>` : ''}
+    ${ps.map((p, i) => `<circle cx="${xs(i)}" cy="${ys(p.score)}" r="4.5" class="point niveau-${bande(q, p.score).niveau}"><title>${dateCourte(p.le.slice(0, 10))} : ${p.score}</title></circle>`).join('')}
+    <text x="${xs(0)}" y="${H - 6}" text-anchor="${ps.length === 1 ? 'middle' : 'start'}">${dateCourte(ps[0].le.slice(0, 10))}</text>
+    ${ps.length > 1 ? `<text x="${xs(ps.length - 1)}" y="${H - 6}" text-anchor="end">${dateCourte(ps[ps.length - 1].le.slice(0, 10))}</text>` : ''}
+  </svg>`;
+}
+
+function vueHistorique(id) {
+  const q = questionnaire(id);
+  if (!q) return aller('#/questionnaires');
+  const ps = S.passages(id);
+  app.innerHTML = `
+    ${bandeau({ retour: '#/questionnaires', petit: 'Questionnaires', titre: `${q.titre} · ${q.nom}` })}
+    ${ps.length ? `<div class="carte">${courbeScores(q, ps)}
+      <p class="aide">Pointillés : les seuils (${q.bandes.slice(0, -1).map((b) => b.max).join(', ')}). ${q.sens === 'haut' ? 'Plus haut = mieux.' : 'Plus bas = mieux.'}</p></div>` : ''}
+    <div class="carte">
+      ${[...ps].reverse().map((p) => { const b = bande(q, p.score); return `<div class="ligne-passage">
+        <span>${dateCourte(p.le.slice(0, 10))}</span><b class="niveau-${b.niveau}">${p.score} ${esc(q.unite)}</b><small>${esc(b.t)}</small>
+        <button class="lien discret danger" data-suppr-passage="${p.id}">Supprimer</button></div>`; }).join('') || '<p class="aide">Aucun passage.</p>'}
+    </div>
+    <div class="cm-actions" style="margin:0 4px"><button class="btn btn-principal" data-action="passer" data-q="${q.id}">Repasser</button></div>`;
+  app.querySelectorAll('[data-suppr-passage]').forEach((b) => b.addEventListener('click', () => { if (!confirmerDeux(b, 'Confirmer ?')) return; S.supprimerPassage(b.dataset.supprPassage); vueHistorique(id); toast('Passage supprimé'); }));
+}
+
+/** Un questionnaire, une question par écran. Une réponse sensible affiche l'aide tout de suite. */
+function passerQuestionnaire(id) {
+  const q = questionnaire(id);
+  const rep = Array(q.items.length).fill(null);
+  let i = -1;
+  let aideMontree = false;
+  ouvrirFenetre('<div class="saisie q-passage" data-q></div>', null, 'fixe');
+  const zone = couche.querySelector('[data-q]');
+  const aide = `<div class="q-aide"><p><b>Merci de l'avoir dit.</b> Tu n'as pas à rester seul(e) avec ça.</p><p>${esc(AIDE_URGENCE.texte)}</p>
+    <a class="btn btn-principal btn-large" href="tel:${AIDE_URGENCE.numero}">📞 Appeler le ${AIDE_URGENCE.numero}</a><p class="aide">${esc(AIDE_URGENCE.danger)}</p></div>`;
+  const dessiner = () => {
+    if (i === -1) {
+      zone.innerHTML = `<h2>${esc(q.titre)} <small>${esc(q.nom)} · ${q.items.length} questions · ${esc(q.duree)}</small></h2>
+        <div class="saisie-corps"><p>${esc(q.mesure)}</p><p class="aide encart">${esc(q.consigne)}</p>
+        <p class="aide">Ce questionnaire donne un repère, pas un diagnostic. Tu peux revenir en arrière à chaque question.</p>
+        <button class="btn btn-principal btn-large" data-go="0">Commencer</button></div>`;
+      return;
+    }
+    if (i === 'aide') {
+      zone.innerHTML = `<h2>${esc(q.titre)}</h2><div class="saisie-corps">${aide}<button class="btn btn-large" data-go="${q.sensible + 1}">Continuer le questionnaire</button></div>`;
+      return;
+    }
+    if (i >= q.items.length) return terminer();
+    zone.innerHTML = `<h2>${esc(q.titre)} <small>${i + 1} / ${q.items.length}</small></h2>
+      <div class="q-progres"><i style="width:${(i / q.items.length) * 100}%"></i></div>
+      <div class="saisie-corps">
+        <p class="q-periode">${esc(q.periode)}</p>
+        <p class="q-item">${esc(q.items[i])}</p>
+        <div class="q-reponses">${q.reponses(i).map((r) => `<button class="btn-type ${rep[i] === r.v ? 'fort' : ''}" data-r="${r.v}">${esc(r.t)}</button>`).join('')}</div>
+        ${i > 0 ? `<button class="lien" data-go="${i - 1}">${I.retour} Question précédente</button>` : ''}
+      </div>`;
+  };
+  const terminer = () => {
+    const score = q.score(rep);
+    S.enregistrerPassage(q.id, [...rep], score);
+    const b = bande(q, score);
+    const sensible = q.sensible != null && rep[q.sensible] > 0;
+    zone.innerHTML = `<h2>${esc(q.titre)} <small>résultat</small></h2>
+      <div class="saisie-corps">
+        <p class="q-score niveau-${b.niveau}"><b>${score}</b> ${esc(q.unite)}</p>
+        <p class="q-bande niveau-${b.niveau}">${esc(b.t)}</p>
+        <p>${esc(b.d)}</p>
+        ${sensible ? aide : ''}
+        <p class="aide">C'est un repère à un moment donné, pas un diagnostic. Seul un professionnel peut poser un diagnostic.</p>
+        <button class="btn btn-principal btn-large" data-fin="historique">Voir l'évolution</button>
+        <button class="lien" data-fin="fermer">Fermer</button>
+      </div>`;
+  };
+  zone.addEventListener('click', (ev) => {
+    const go = ev.target.closest('[data-go]');
+    if (go) { i = Number(go.dataset.go); return dessiner(); }
+    const r = ev.target.closest('[data-r]');
+    if (r) {
+      rep[i] = Number(r.dataset.r);
+      r.classList.add('fort');
+      const suivant = () => {
+        if (i === q.sensible && rep[i] > 0 && !aideMontree) { aideMontree = true; i = 'aide'; return dessiner(); }
+        i += 1;
+        dessiner();
+      };
+      return setTimeout(suivant, 160);
+    }
+    const fin = ev.target.closest('[data-fin]');
+    if (fin) { fermer(false); if (fin.dataset.fin === 'historique') aller(`#/questionnaires/${q.id}`); else route(); }
+  });
+  dessiner();
 }
 
 // --- Saisie -------------------------------------------------------------------------------------
@@ -958,6 +1333,11 @@ function vueReglages() {
   app.innerHTML = `
     ${bandeau({ titre: 'Réglages' })}
     <div class="carte">
+      <h3>Rythme et types de jour <small>${S.rythme().types.length} types</small></h3>
+      <p class="aide">Travail, télétravail, congé, week-end… et les heures de coucher et de réveil que tu te fixes pour chacun.</p>
+      <button class="btn btn-large" data-action="aller" data-h="#/reglages/rythme">Régler ${I.droite}</button>
+    </div>
+    <div class="carte">
       <h3>Types de notes <small>${S.get().types.filter((t) => t.visible).length} affichés</small></h3>
       <p class="aide">Afficher ou masquer chaque état, symptôme, envie, coping, activité… Renommer, ajouter les tiens.</p>
       <button class="btn btn-large" data-action="aller" data-h="#/reglages/types">Gérer les types ${I.droite}</button>
@@ -997,7 +1377,8 @@ function vueReglages() {
       <p class="aide">Besoin de parler à quelqu'un tout de suite : <b>3114</b>, numéro national de prévention du suicide, gratuit, 24 h/24.</p>
     </div>
     <div class="zone-danger"><button class="lien danger" data-action="tout-effacer">Tout effacer sur cet appareil</button></div>
-    <p class="pied">Logger v2.0.6 · les données restent sur cet appareil${S.stockage() === 'indexeddb' ? ` (IndexedDB${S.stockageProtege() ? ', protégées' : ''})` : ''}</p>`;
+    ${carteAide()}
+    <p class="pied">Logger v2.1 · les données restent sur cet appareil${S.stockage() === 'indexeddb' ? ` (IndexedDB${S.stockageProtege() ? ', protégées' : ''})` : ''}</p>`;
   app.querySelector('[data-f="import"]').addEventListener('change', (ev) => importer(ev.target.files[0]));
 }
 
@@ -1062,7 +1443,7 @@ function premierSymbole(texte) {
 }
 
 function fenetreIcone(t, apres) {
-  ouvrirFenetre(`<form class="saisie" style="--c:${famille(t.famille).couleur}">
+  ouvrirFenetre(`<form class="saisie" style="--c:${famille(t.famille)?.couleur || '#8f9db0'}">
     <h2><span class="emoji">${esc(t.icone)}</span>${esc(t.nom)} <small>icône</small></h2>
     <label class="champ"><span>N'importe quel emoji du clavier (la recherche du clavier marche)</span><input name="icone" value="${esc(t.icone)}" autocomplete="off" inputmode="text" maxlength="16"></label>
     <div class="saisie-corps">
@@ -1111,8 +1492,19 @@ function vueGuide() {
       ['Cartes', 'Les notes du jour dans l\'ordre.'],
       ['Journée', 'De 0 h à 24 h. Une plage qui passe minuit (endormissement) s\'affiche sur les deux jours.'],
     ]],
+    ['Matin, soir et rythme', [
+      ['Débrief du matin', 'Jusqu\'à midi, une carte propose de noter la nuit : endormissement (s\'il n\'a pas été noté la veille), nombre de réveils sans regarder l\'heure, temps éveillé, réveil final, la nuit de 0 à 10. Tout est facultatif ; « Pas aujourd\'hui » la range. Plus tard ou pour un autre jour : « + Nuit » sous le bandeau.'],
+      ['Bilan du soir', 'À partir de 19 h, une carte propose le bilan : les faits du jour sans rien à remplir (envies, coping, activités, états les plus forts), puis la journée de 0 à 10 et une phrase. Le bilan d\'hier reste proposé le lendemain matin. Pour un autre jour : « + Bilan ».'],
+      ['Type de jour', 'Sous le bandeau : travail, télétravail, congé, week-end… D\'après ta semaine type ; un toucher pour changer ce jour-là. Réglages → Rythme et types de jour pour la semaine type et les heures visées.'],
+      ['La nuit dans le planning', 'Un fond bleuté discret montre la nuit, d\'après l\'endormissement et le réveil du débrief. Sans données, et si tu as réglé des heures visées, la nuit prévue s\'affiche hachurée.'],
+    ]],
+    ['Questionnaires', [
+      ['Lesquels', 'WHO-5 (bien-être), PHQ-9 (humeur), GAD-7 (anxiété), AUDIT-C (alcool), dans leurs versions françaises validées, avec leur vouvoiement d\'origine. À passer quand tu veux ; le rythme conseillé est indiqué, jamais rappelé.'],
+      ['Résultat', 'Un score, ce qu\'il veut dire en mots simples, et l\'évolution en courbe. Un repère, jamais un diagnostic.'],
+      ['Besoin d\'aide', 'Le 3114 (gratuit, 24 h/24) apparaît dès qu\'une réponse le justifie, et reste accessible dans Questionnaires et Réglages.'],
+    ]],
     ['Jours et pauses', [
-      ['Jour renseigné', 'Un jour avec une note, ou marqué « rien à signaler ». Un jour vide ne compte nulle part : pas de jour raté.'],
+      ['Jour renseigné', 'Un jour avec une note, un débrief, un bilan, ou marqué « rien à signaler ». Un jour vide ne compte nulle part : pas de jour raté.'],
       ['Pause du suivi', 'Réglages → Pause : les jours en pause ne comptent nulle part.'],
     ]],
     ['Bibliothèques', [
@@ -1381,6 +1773,11 @@ app.addEventListener('click', (ev) => {
   switch (d.action) {
     case 'aller': return aller(d.h);
     case 'date': return fenetreDate();
+    case 'debrief': return fenetreDebrief(d.d || jourAffiche);
+    case 'bilan': return fenetreBilan(d.d || jourAffiche);
+    case 'fermer-carte': S.fermerCarte(d.d, d.quoi); vueJour(); return toast(d.quoi === 'nuit' ? 'Débrief rangé pour aujourd\'hui (toujours accessible : + Nuit)' : 'Bilan rangé pour ce soir (toujours accessible : + Bilan)');
+    case 'type-jour': return fenetreTypeJour(jourAffiche);
+    case 'passer': return passerQuestionnaire(d.q);
     case 'note': return fenetreNote(S.note(d.id));
     case 'noter-ici': return vueNoter();
     case 'legende': legendeOuverte = !legendeOuverte; return vueJour();

@@ -151,5 +151,33 @@ verifier('envie avant une autre envie du même sujet : traversée', S.issueEnvie
 verifier('coping d\'un autre sujet : ne compte pas', S.issueEnvie(envC, '2026-11-21').issue === 'traversee');
 verifier('aujourd\'hui sans coping : en attente', S.issueEnvie(envD, '2026-11-21').issue === 'attente');
 
+// 11. Rythme, nuit, bilan (v2.1).
+S._remplacer({ version: 2, notes: [] });
+verifier('type de jour : samedi = week-end, lundi = travail', S.typeJour('2026-11-21').id === 'weekend' && S.typeJour('2026-11-23').id === 'travail');
+S.fixerTypeJour('2026-11-23', 'conge');
+verifier('type de jour : choisi pour un jour', S.typeJour('2026-11-23').id === 'conge' && S.typeJourChoisi('2026-11-23'));
+S.fixerTypeJour('2026-11-23', 'travail');
+verifier('type de jour : retour à la semaine type, rien de stocké', !S.get().jours['2026-11-23']);
+const tt = S.rythme().types.find((t) => t.id === 'travail');
+tt.coucher = '23:30'; tt.lever = '07:00';
+verifier('heures visées : coucher la veille', JSON.stringify(S.nuitVisee('2026-11-23')) === JSON.stringify({ coucher: '2026-11-22T23:30', lever: '2026-11-23T07:00' }));
+tt.coucher = '00:30';
+verifier('heures visées : coucher après minuit', S.nuitVisee('2026-11-23').coucher === '2026-11-23T00:30');
+verifier('nuit déduite des heures visées', S.nuitDe('2026-11-23').sommeil === 390 && !S.nuitDe('2026-11-23').debutReel);
+S.ajouterNote({ type: 'endormissement', debut: '2026-11-22T23:40', fin: '2026-11-23T00:10', latence: 25, precision: 'vers' });
+S.enregistrerNuit('2026-11-23', { reveils: 2, eveille: 22, reveil: '06:50', qualite: 6 });
+const nn = S.nuitDe('2026-11-23');
+verifier('nuit réelle : endormi 00:05, réveil 6:50, 22 min éveillé', nn.debut === '2026-11-23T00:05' && nn.fin === '2026-11-23T06:50' && nn.sommeil === 405 - 22 && nn.debutReel && nn.finReelle);
+verifier('débrief : le jour compte comme renseigné', S.statutJour('2026-11-23') === 'renseigne');
+S.basculerCalme('2026-11-23'); S.basculerCalme('2026-11-23');
+verifier('rien à signaler : ne touche pas au débrief', !!S.nuit('2026-11-23'));
+S.enregistrerBilan('2026-11-24', { note: 7, phrase: '' });
+verifier('bilan : le jour compte comme renseigné', S.statutJour('2026-11-24') === 'renseigne' && S.bilan('2026-11-24').note === 7);
+const Q = await imp('questionnaires.js');
+verifier('PHQ-9 : bandes', Q.bande(Q.questionnaire('phq9'), 9).t === 'Léger' && Q.bande(Q.questionnaire('phq9'), 20).t === 'Sévère');
+verifier('WHO-5 : score sur 100', Q.questionnaire('who5').score([5, 5, 5, 5, 5]) === 100);
+S.enregistrerPassage('gad7', [1, 1, 1, 1, 1, 1, 1], 7);
+verifier('passage enregistré et exporté', S.passages('gad7').length === 1 && S.donneesExport().questionnaires.length === 1);
+
 console.log(`${ok} contrôles réussis, ${ko} échec${ko > 1 ? 's' : ''}`);
 process.exit(ko ? 1 : 0);
