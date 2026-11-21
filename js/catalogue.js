@@ -30,7 +30,32 @@ export const SAISIE = {
 
 const ECHELLE = { min: 0, max: 10, bas: 'à peine', haut: 'très fort' };
 
-const t = (famille, id, nom, extra = {}) => ({ id, famille, nom, visible: true, echelle: SAISIE[famille].intensite ? { ...ECHELLE } : null, ...extra });
+/** Icône (emoji) de chaque type de départ ; modifiable dans les Réglages. */
+export const ICONES = {
+  agitation: '🌀', maletre: '🌧️', stress: '😰', tristesse: '😢', irritabilite: '😤', fatigue: '🥱', somnolence: '😪', energie: '⚡', calme: '😌',
+  nausees: '🤢', tete: '🤕', ventre: '😖', courbatures: '🦵', blessure: '🩹', rhume: '🤧', douleur: '💢',
+  'e-manger': '🍔', 'e-cigarette': '🚬', 'e-alcool': '🍷', 'e-porno': '🍑', 'e-jeux': '🎮', 'e-ecrans': '📱', 'e-achats': '🛍️', 'e-dormir': '😴', 'e-reverie': '💭',
+  'c-manger': '🍔', 'c-cigarette': '🚬', 'c-alcool': '🍷', 'c-porno': '🍑', 'c-jeux': '🎮', 'c-ecrans': '📱', 'c-achats': '🛍️', 'c-dormir': '😴', 'c-reverie': '💭',
+  travail: '💼', sport: '🏋️', sortie: '👥', taches: '🧺', loisir: '🎨', repos: '🛋️',
+  declencheur: '💥',
+  respiration: '🌬️', marche: '🚶', 'a-sport': '🤸', appel: '📞', douche: '🚿', coucher: '🛏️', ecrire: '✍️', musique: '🎧',
+  endormissement: '🌙', reveil: '👁️',
+};
+
+/** Icône par défaut d'un type ajouté, selon sa famille. */
+export const ICONE_FAMILLE = { etat: '🙂', corps: '🩺', envie: '✨', coping: '🔁', activite: '📌', declencheur: '💥', aide: '🌱', sommeil: '🌙' };
+
+/** Suggestions proposées au choix d'une icône ; n'importe quel emoji du clavier marche aussi. */
+export const SUGGESTIONS = [
+  ['Humeur', '😀 🙂 😐 😕 🙁 😢 😭 😰 😨 😱 😤 😠 🤯 😵‍💫 🌀 🌧️ ⛈️ ☁️ 🌤️ 😌 🫠 🥲 😶‍🌫️ 🤪 🥺 😬'],
+  ['Corps', '🤢 🤮 🤕 🤒 🤧 😷 🩹 🦵 🦶 💪 🫀 🫁 🧠 🦷 👁️ 💢 🔥 ❄️ 🩸 💊'],
+  ['Envies, coping', '🍔 🍕 🍫 🍬 🍩 🍟 🍷 🍺 🥃 ☕ 🚬 🍑 🔞 🎮 📱 💻 📺 🛍️ 💸 🎰 😴 💭'],
+  ['Activités', '💼 📚 ✍️ 🎨 🎸 🎧 🏋️ 🚴 🏃 🧘 🚶 👥 👨‍👩‍👧 🧺 🧹 🍳 🚗 🚇 🛋️ 🌳 💻'],
+  ['Aides', '🌬️ 🚿 🛁 📞 💬 🤗 🌱 ☀️ 🎵 🐾 🫖 📝'],
+  ['Sommeil', '🌙 🛏️ 😴 💤 👁️ ⏰ 🌗'],
+];
+
+const t = (famille, id, nom, extra = {}) => ({ id, famille, nom, visible: true, icone: ICONES[id] || ICONE_FAMILLE[famille], echelle: SAISIE[famille].intensite ? { ...ECHELLE } : null, ...extra });
 
 export function typesDeDepart() {
   return [

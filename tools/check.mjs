@@ -39,6 +39,7 @@ verifier('catalogue : toutes les familles couvertes', Ca.FAMILLES.every((f) => t
 verifier('catalogue : envies avec intensité', types.filter((t) => t.famille === 'envie').every((t) => t.echelle));
 
 // 4. Corps et endormissement au catalogue.
+verifier('chaque type a une icône', types.every((t) => t.icone));
 verifier('famille Corps', types.some((t) => t.famille === 'corps' && t.nom === 'Nausées'));
 verifier('endormissement : zone de 30 min au moins', Ca.ZONE_MIN === 30 && Ca.LATENCES.length === 4);
 
@@ -94,6 +95,7 @@ verifier('exemple retiré', !S.aDesExemples());
 
 // 7. Migration v2.0 → v2.0.1 : les blocs deviennent des enchaînements.
 S._remplacer({ version: 2, types: [], notes: [{ id: 'x', type: 'agitation', debut: '2026-11-20T21:00', bloc: 'B' }, { id: 'y', type: 'fatigue', debut: '2026-11-20T21:30', bloc: 'B' }], blocs: [{ id: 'B', nom: 'Soirée' }] });
+verifier('icône ajoutée aux anciens types', S.type('agitation')?.icone === '🌀');
 verifier('migration des blocs', S.note('y').chaine === 'x' && S.note('x').chaine === null && !('blocs' in S.get()));
 
 console.log(`${ok} contrôles réussis, ${ko} échec${ko > 1 ? 's' : ''}`);

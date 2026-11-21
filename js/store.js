@@ -1,6 +1,6 @@
 // État de Logger v2 : un seul journal de notes, gardé en JSON dans le stockage du navigateur.
 import { uid, horodatage, jourDe, minutes } from './calc.js';
-import { typesDeDepart, etiquettesDeDepart, DEBUT_JOURNEE } from './catalogue.js';
+import { typesDeDepart, etiquettesDeDepart, DEBUT_JOURNEE, ICONES, ICONE_FAMILLE } from './catalogue.js';
 
 const CLE = 'logger2-etat';
 const CLE_COPIE = 'logger2-copie';
@@ -27,6 +27,7 @@ function normaliser(e) {
   // Types ajoutés au catalogue après coup : on les complète sans toucher aux réglages existants.
   const ids = new Set(r.types.map((t) => t.id));
   for (const t of v.types) if (!ids.has(t.id)) r.types.push(t);
+  for (const t of r.types) if (!t.icone) t.icone = ICONES[t.id] || ICONE_FAMILLE[t.famille] || '•';
   // v2.0 → v2.0.1 : les blocs deviennent des enchaînements (la plus ancienne note en tête).
   if (Array.isArray(r.blocs)) {
     for (const b of r.blocs) {
@@ -163,7 +164,7 @@ export function supprimerPause(id) {
 
 export function ajouterType(famille, nom) {
   const ref = etat.types.find((t) => t.famille === famille);
-  const t = { id: uid('ty'), famille, nom, visible: true, echelle: ref?.echelle ? { ...ref.echelle, bas: 'à peine', haut: 'très fort' } : null, perso: true };
+  const t = { id: uid('ty'), famille, nom, visible: true, icone: ICONE_FAMILLE[famille], echelle: ref?.echelle ? { ...ref.echelle, bas: 'à peine', haut: 'très fort' } : null, perso: true };
   etat.types.push(t);
   enregistrer();
   return t;
