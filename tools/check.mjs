@@ -25,6 +25,8 @@ const imp = (f) => import(pathToFileURL(join(racine, 'js', f)).href);
 const Cl = await imp('calc.js');
 const Ca = await imp('catalogue.js');
 const S = await imp('store.js');
+await S.demarrer();
+verifier('stockage de repli : local', S.stockage() === 'local');
 const Cr = await imp('crypto.js');
 const { exemple } = await imp('demo.js');
 
@@ -119,6 +121,7 @@ verifier('coffre : écrit et sans texte en clair', brutCoffre.includes('logger-c
 S.ajouterNote({ type: 'stress', phrase: 'deuxieme-secret' });
 await S.ecrituresFinies();
 const S2 = await import(pathToFileURL(join(racine, 'js', 'store.js')).href + '?relance');
+await S2.demarrer();
 verifier('coffre : fermé au démarrage', S2.estChiffre() && !S2.estOuvert() && S2.get().notes.length === 0);
 verifier('coffre : mauvais code refusé', !(await S2.ouvrir('111111')));
 verifier('coffre : bon code, tout revient', (await S2.ouvrir('258013')) && S2.get().notes.some((n) => n.phrase === 'deuxieme-secret'));

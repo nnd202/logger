@@ -997,7 +997,7 @@ function vueReglages() {
       <p class="aide">Besoin de parler à quelqu'un tout de suite : <b>3114</b>, numéro national de prévention du suicide, gratuit, 24 h/24.</p>
     </div>
     <div class="zone-danger"><button class="lien danger" data-action="tout-effacer">Tout effacer sur cet appareil</button></div>
-    <p class="pied">Logger v2.0.5 · les données restent sur cet appareil</p>`;
+    <p class="pied">Logger v2.0.6 · les données restent sur cet appareil${S.stockage() === 'indexeddb' ? ` (IndexedDB${S.stockageProtege() ? ', protégées' : ''})` : ''}</p>`;
   app.querySelector('[data-f="import"]').addEventListener('change', (ev) => importer(ev.target.files[0]));
 }
 
@@ -1419,6 +1419,7 @@ document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !couch
 S.surErreurEcriture(() => toast("Enregistrement impossible : le stockage du téléphone est plein. Exporte tes données."));
 activerBulles();
 suivreZoneVisible();
+await S.demarrer();
 if (!verrouiller()) route();
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {

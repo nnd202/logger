@@ -2,22 +2,46 @@
 import { uid, horodatage, jourDe, minutes } from './calc.js';
 import { typesDeDepart, etiquettesDeDepart, DEBUT_JOURNEE, ICONES, ICONE_FAMILLE, ECHELLE_COPING } from './catalogue.js';
 import * as C from './crypto.js';
+import { ouvrirStockage } from './stockage.js';
 
 const CLE = 'logger2-etat'; // état en clair (tant qu'aucun code n'existe)
 const CLE_COFFRE = 'logger2-coffre'; // état chiffré avec le code
 const CLE_COPIE = 'logger2-copie';
 
 // Coffre : { format, sel, iterations, longueur, iv, donnees }. Tant qu'il n'est pas ouvert, l'état est vide.
-let coffre = lireCoffre();
+// Les données sont lues une fois au démarrage (demarrer) et gardées en mémoire ; chaque écriture part
+// ensuite vers le stockage de l'appareil, dans l'ordre.
+const cache = new Map();
+let support = null;
+let coffre = null;
 let cleCoffre = null;
-let etat = coffre ? vierge() : charger();
+let etat = vierge();
 let ecritures = Promise.resolve();
+
+export async function demarrer(choisi) {
+  support = choisi || await ouvrirStockage();
+  for (const k of [CLE, CLE_COFFRE, CLE_COPIE]) cache.set(k, await support.lire(k));
+  coffre = lireCoffre();
+  cleCoffre = null;
+  etat = coffre ? vierge() : charger();
+  return support;
+}
+export const stockage = () => support?.sorte || null;
+export const stockageProtege = () => !!support?.persistant;
+
+const lire = (k) => cache.get(k) ?? null;
+/** Dans la file d'écriture : met à jour la mémoire et l'appareil (v = null pour effacer). */
+async function persister(k, v) {
+  cache.set(k, v);
+  if (v == null) await support.effacer(k); else await support.ecrire(k, v);
+}
+const poser = (k, v) => ecrirePlusTard(() => persister(k, v));
 // Une écriture refusée (stockage plein) ne doit jamais passer inaperçue.
 let alerte = () => {};
 export const surErreurEcriture = (f) => { alerte = f; };
 
 function lireCoffre() {
-  try { const c = JSON.parse(localStorage.getItem(CLE_COFFRE)); return c?.format === 'logger-coffre' ? c : null; } catch { return null; }
+  try { const c = JSON.parse(lire(CLE_COFFRE)); return c?.format === 'logger-coffre' ? c : null; } catch { return null; }
 }
 
 export function vierge() {
@@ -59,7 +83,7 @@ function normaliser(e) {
 
 function charger() {
   try {
-    const brut = localStorage.getItem(CLE);
+    const brut = lire(CLE);
     if (brut) return normaliser(JSON.parse(brut));
   } catch { /* stockage indisponible */ }
   return vierge();
@@ -67,14 +91,14 @@ function charger() {
 
 export function enregistrer() {
   if (!coffre) {
-    try { localStorage.setItem(CLE, JSON.stringify(etat)); } catch { alerte(); }
+    poser(CLE, JSON.stringify(etat));
     return;
   }
   if (!cleCoffre) return; // coffre fermé : rien à écrire
   const instantane = JSON.stringify(etat);
   ecrirePlusTard(async () => {
     const s = await C.sceller(cleCoffre, instantane);
-    localStorage.setItem(CLE_COFFRE, JSON.stringify({ ...coffre, ...s }));
+    await persister(CLE_COFFRE, JSON.stringify({ ...coffre, ...s }));
   });
 }
 
@@ -83,7 +107,10 @@ function ecrirePlusTard(f) {
   ecritures = ecritures.then(f).catch(() => alerte());
   return ecritures;
 }
-export const ecrituresFinies = () => ecritures;
+export async function ecrituresFinies() {
+  let p;
+  do { p = ecritures; await p; } while (p !== ecritures);
+}
 
 // --- Coffre (données chiffrées avec le code) -------------------------------------------------------
 
@@ -111,27 +138,29 @@ export async function verifierCode(code) {
 
 /** Chiffre les données (et la copie de secours) avec ce code ; sert aussi à changer de code. */
 export async function chiffrerAvec(code, longueur = 6) {
-  await ecritures;
+  await ecrituresFinies();
   const copie = await lireCopie();
   const sel = C.nouveauSel();
   const k = await C.deriver(code, sel);
   coffre = { format: 'logger-coffre', version: 1, kdf: 'PBKDF2-SHA-256', iterations: C.ITERATIONS, sel, longueur };
   cleCoffre = k;
   const s = await C.sceller(k, etat);
-  localStorage.setItem(CLE_COFFRE, JSON.stringify({ ...coffre, ...s }));
-  localStorage.removeItem(CLE);
+  await poser(CLE_COFFRE, JSON.stringify({ ...coffre, ...s }));
+  await poser(CLE, null);
   if (copie) await ecrireCopie(copie);
+  await ecrituresFinies();
 }
 
 /** Retire le chiffrement : les données repassent en clair sur l'appareil. */
 export async function dechiffrerTout() {
-  await ecritures;
+  await ecrituresFinies();
   const copie = await lireCopie();
   coffre = null;
   cleCoffre = null;
-  localStorage.removeItem(CLE_COFFRE);
+  poser(CLE_COFFRE, null);
   enregistrer();
   if (copie) await ecrireCopie(copie);
+  await ecrituresFinies();
 }
 
 export const get = () => etat;
@@ -339,13 +368,13 @@ function ecrireCopie({ le, etat: e }) {
   const texte = typeof e === 'string' ? e : JSON.stringify(e);
   return ecrirePlusTard(async () => {
     const corps = coffre && cleCoffre ? await C.sceller(cleCoffre, texte) : { etat: JSON.parse(texte) };
-    localStorage.setItem(CLE_COPIE, JSON.stringify({ le, ...corps }));
+    await persister(CLE_COPIE, JSON.stringify({ le, ...corps }));
   });
 }
 
 async function lireCopie() {
   let c;
-  try { c = JSON.parse(localStorage.getItem(CLE_COPIE)); } catch { return null; }
+  try { c = JSON.parse(lire(CLE_COPIE)); } catch { return null; }
   if (!c) return null;
   if (c.etat) return c;
   if (!cleCoffre) return null;
@@ -357,17 +386,17 @@ function copieDeSecours() {
 }
 
 export function copieDisponible() {
-  try { return JSON.parse(localStorage.getItem(CLE_COPIE))?.le || null; } catch { return null; }
+  try { return JSON.parse(lire(CLE_COPIE))?.le || null; } catch { return null; }
 }
 
 export async function restaurerCopie() {
-  await ecritures;
+  await ecrituresFinies();
   const c = await lireCopie();
   if (!c) return false;
   const code = etat.reglages.code;
   etat = normaliser(c.etat);
   if (code) etat.reglages.code = code; else delete etat.reglages.code;
-  localStorage.removeItem(CLE_COPIE);
+  poser(CLE_COPIE, null);
   enregistrer();
   return true;
 }
@@ -404,7 +433,7 @@ export function effacerAvecCode() {
   coffre = null;
   cleCoffre = null;
   etat = vierge();
-  for (const k of [CLE_COFFRE, CLE_COPIE]) localStorage.removeItem(k);
+  for (const k of [CLE_COFFRE, CLE_COPIE]) poser(k, null);
   enregistrer();
 }
 
