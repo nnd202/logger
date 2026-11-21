@@ -2,13 +2,14 @@
 // Tout est modifiable ensuite (afficher / masquer, renommer, ajouter) depuis les Réglages.
 
 export const FAMILLES = [
-  { id: 'etat', nom: 'États', couleur: '#c2416b', aide: 'Ce que tu ressens, de 0 à 10' },
-  { id: 'envie', nom: 'Envies', couleur: '#e0794f', aide: "L'envie, cédée ou traversée" },
-  { id: 'coping', nom: 'Coping', couleur: '#8a6fc4', aide: 'Ce que tu fais pour tenir le coup' },
-  { id: 'activite', nom: 'Activités', couleur: '#3f9d93', aide: 'Ce que tu fais de ta journée' },
-  { id: 'declencheur', nom: 'Déclencheurs', couleur: '#7f8ea3', aide: 'Ce qui a lancé quelque chose' },
-  { id: 'aide', nom: 'Actions aidantes', couleur: '#4f9d5d', aide: 'Ce qui casse la chaîne' },
-  { id: 'sommeil', nom: 'Sommeil', couleur: '#4f6fae', aide: 'Endormissement, nuit' },
+  { id: 'etat', un: 'État', nom: 'États', couleur: '#c2416b', aide: 'Ce que tu ressens, de 0 à 10' },
+  { id: 'corps', un: 'Corps', nom: 'Corps', couleur: '#b07a3c', aide: 'Ce que ressent ton corps, de 0 à 10' },
+  { id: 'envie', un: 'Envie', nom: 'Envies', couleur: '#e0794f', aide: "L'envie, cédée ou traversée" },
+  { id: 'coping', un: 'Coping', nom: 'Coping', couleur: '#8a6fc4', aide: 'Ce que tu fais pour tenir le coup' },
+  { id: 'activite', un: 'Activité', nom: 'Activités', couleur: '#3f9d93', aide: 'Ce que tu fais de ta journée' },
+  { id: 'declencheur', un: 'Déclencheur', nom: 'Déclencheurs', couleur: '#7f8ea3', aide: 'Ce qui a lancé quelque chose' },
+  { id: 'aide', un: 'Action aidante', nom: 'Actions aidantes', couleur: '#4f9d5d', aide: 'Ce qui casse la chaîne' },
+  { id: 'sommeil', un: 'Sommeil', nom: 'Sommeil', couleur: '#4f6fae', aide: 'Endormissement, réveils, sieste' },
 ];
 
 export const famille = (id) => FAMILLES.find((f) => f.id === id);
@@ -18,6 +19,7 @@ export const famille = (id) => FAMILLES.find((f) => f.id === id);
 // aide : « a aidé ? » ; activite : nom libre, plaisir, maîtrise, facettes.
 export const SAISIE = {
   etat: { intensite: true },
+  corps: { intensite: true },
   envie: { intensite: true, issue: true },
   coping: { plage: true, quantite: true },
   activite: { plage: true, activite: true },
@@ -41,6 +43,14 @@ export function typesDeDepart() {
     t('etat', 'somnolence', 'Somnolence'),
     t('etat', 'energie', 'Énergie', { echelle: { min: 0, max: 10, bas: 'à plat', haut: 'pleine forme' } }),
     t('etat', 'calme', 'Calme', { echelle: { min: 0, max: 10, bas: 'à peine', haut: 'très apaisé' } }),
+
+    t('corps', 'nausees', 'Nausées'),
+    t('corps', 'tete', 'Mal de tête'),
+    t('corps', 'ventre', 'Mal de ventre'),
+    t('corps', 'courbatures', 'Courbatures intenses'),
+    t('corps', 'blessure', 'Blessure'),
+    t('corps', 'rhume', 'Rhume'),
+    t('corps', 'douleur', 'Autre douleur'),
 
     t('envie', 'e-manger', 'Manger'),
     t('envie', 'e-cigarette', 'Cigarette'),
@@ -80,7 +90,8 @@ export function typesDeDepart() {
     t('aide', 'ecrire', 'Écrire'),
     t('aide', 'musique', 'Musique'),
 
-    t('sommeil', 'endormissement', 'Endormissement', { echelle: { min: 0, max: 10, bas: 'apaisé', haut: 'très agité' } }),
+    t('sommeil', 'endormissement', 'Endormissement', { echelle: { min: 0, max: 10, bas: 'apaisé', haut: 'très agité' }, endormissement: true }),
+    t('sommeil', 'reveil', 'Réveil dans la nuit', { echelle: null }),
   ];
 }
 
@@ -126,5 +137,15 @@ export const ISSUES = [
   { id: 'cede', nom: 'Cédé' },
 ];
 
-/** Une journée de vie va de 5 h à 5 h : une note à 1 h du matin appartient à la veille. */
-export const DEBUT_JOURNEE = 5;
+/** Une journée va de 0 h à 24 h (choix du 21 novembre). Une plage qui passe minuit (endormissement)
+ * s'affiche sur les deux jours. */
+export const DEBUT_JOURNEE = 0;
+
+/** Temps estimé pour s'endormir (journal de sommeil de consensus) ; la zone affichée fait au moins 30 min. */
+export const LATENCES = [
+  { min: 10, nom: 'Moins de 15 min' },
+  { min: 25, nom: '15 à 30 min' },
+  { min: 45, nom: '30 min à 1 h' },
+  { min: 90, nom: "Plus d'1 h" },
+];
+export const ZONE_MIN = 30;

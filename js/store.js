@@ -1,6 +1,6 @@
 // État de Logger v2 : un seul journal de notes, gardé en JSON dans le stockage du navigateur.
 import { uid, horodatage, jourDe, minutes } from './calc.js';
-import { typesDeDepart, etiquettesDeDepart, FAMILLES, DEBUT_JOURNEE } from './catalogue.js';
+import { typesDeDepart, etiquettesDeDepart, DEBUT_JOURNEE } from './catalogue.js';
 
 const CLE = 'logger2-etat';
 const CLE_COPIE = 'logger2-copie';
@@ -12,12 +12,11 @@ export function vierge() {
     version: 2,
     types: typesDeDepart(),
     notes: [],
-    blocs: [],
     jours: {}, // { 'AAAA-MM-JJ': { calme: true } }
     pauses: [], // [{ id, du, au | null }]
     etiquettes: etiquettesDeDepart(),
     personnes: [], // [{ id, nom }]
-    reglages: { ecartEpisode: 45, calques: FAMILLES.map((f) => f.id), echelleHeure: 48 },
+    reglages: { echelleHeure: 48, planningOuvert: false },
   };
 }
 
@@ -28,6 +27,15 @@ function normaliser(e) {
   // Types ajoutés au catalogue après coup : on les complète sans toucher aux réglages existants.
   const ids = new Set(r.types.map((t) => t.id));
   for (const t of v.types) if (!ids.has(t.id)) r.types.push(t);
+  // v2.0 → v2.0.1 : les blocs deviennent des enchaînements (la plus ancienne note en tête).
+  if (Array.isArray(r.blocs)) {
+    for (const b of r.blocs) {
+      const liste = r.notes.filter((n) => n.bloc === b.id).sort((a, c) => a.debut.localeCompare(c.debut));
+      for (const n of liste.slice(1)) n.chaine = liste[0].id;
+    }
+    delete r.blocs;
+  }
+  for (const n of r.notes) { delete n.bloc; if (n.chaine === undefined) n.chaine = null; }
   return r;
 }
 
@@ -48,7 +56,6 @@ export const reglages = () => etat.reglages;
 export const type = (id) => etat.types.find((t) => t.id === id) || null;
 export const typesVisibles = (fam) => etat.types.filter((t) => t.visible && (!fam || t.famille === fam));
 export const note = (id) => etat.notes.find((n) => n.id === id) || null;
-export const bloc = (id) => etat.blocs.find((b) => b.id === id) || null;
 export const etiquette = (id) => etat.etiquettes.find((e) => e.id === id) || null;
 export const personne = (id) => etat.personnes.find((p) => p.id === id) || null;
 
@@ -64,7 +71,7 @@ export function ajouterNote(champs) {
     id: uid('n'), type: null, debut: horodatage(), fin: null, enCours: false, precision: 'exacte',
     intensite: null, issue: null, quantite: '', aide: null, motif: null,
     activite: '', plaisir: null, maitrise: null, facettes: [],
-    avecQui: [], personnes: [], etiquettes: [], phrase: '', bloc: null, cree: Date.now(),
+    avecQui: [], personnes: [], etiquettes: [], phrase: '', chaine: null, cree: Date.now(),
     ...champs,
   };
   etat.notes.push(n);
@@ -81,9 +88,28 @@ export function modifierNote(n, champs) {
 export function supprimerNote(id) {
   const n = note(id);
   etat.notes = etat.notes.filter((x) => x.id !== id);
-  if (n?.bloc) nettoyerBlocs();
+  // Une tête d'enchaînement supprimée : la suivante devient la tête.
+  const suites = suitesDe(id);
+  if (suites.length) {
+    suites[0].chaine = null;
+    for (const s of suites.slice(1)) s.chaine = suites[0].id;
+  }
   enregistrer();
   return n;
+}
+
+/** Notes enchaînées à une tête, dans l'ordre. */
+export const suitesDe = (id) => etat.notes.filter((x) => x.chaine === id).sort(parDebut);
+
+export function detacher(n) {
+  n.chaine = null;
+  enregistrer();
+}
+
+/** Plages commencées un jour précédent et encore en cours ce jour-là (endormissement après minuit). */
+export function plagesTraversantes(date) {
+  const debutJour = `${date}T${String(DEBUT_JOURNEE).padStart(2, '0')}:00`;
+  return etat.notes.filter((n) => n.debut < debutJour && ((n.fin && n.fin > debutJour) || n.enCours)).sort(parDebut);
 }
 
 export function remettreNote(n) {
@@ -97,49 +123,6 @@ export function arreter(n, fin = horodatage()) {
   enregistrer();
 }
 
-/** « Encore » : la dernière note répétée maintenant (même type, intensité, étiquettes, entourage). */
-export function derniere() {
-  return [...etat.notes].sort((a, b) => b.cree - a.cree)[0] || null;
-}
-
-export function encore() {
-  const d = derniere();
-  if (!d) return null;
-  const { type: ty, intensite, etiquettes, avecQui, personnes } = d;
-  return ajouterNote({ type: ty, intensite, etiquettes: [...etiquettes], avecQui: [...avecQui], personnes: [...personnes] });
-}
-
-// --- Blocs : regroupements faits à la main ------------------------------------------------
-
-export function creerBloc(ids, nom = '') {
-  const b = { id: uid('b'), nom };
-  etat.blocs.push(b);
-  for (const n of etat.notes) if (ids.includes(n.id)) n.bloc = b.id;
-  nettoyerBlocs();
-  enregistrer();
-  return b;
-}
-
-export function definirMembres(blocId, ids) {
-  for (const n of etat.notes) {
-    if (ids.includes(n.id)) n.bloc = blocId;
-    else if (n.bloc === blocId) n.bloc = null;
-  }
-  nettoyerBlocs();
-  enregistrer();
-}
-
-export function defaireBloc(blocId) {
-  for (const n of etat.notes) if (n.bloc === blocId) n.bloc = null;
-  etat.blocs = etat.blocs.filter((b) => b.id !== blocId);
-  enregistrer();
-}
-
-/** Un bloc vide disparaît. */
-function nettoyerBlocs() {
-  const utilises = new Set(etat.notes.map((n) => n.bloc).filter(Boolean));
-  etat.blocs = etat.blocs.filter((b) => utilises.has(b.id));
-}
 
 // --- Jours renseignés et pauses ------------------------------------------------------------
 
@@ -273,7 +256,7 @@ export function importer(d, mode) {
       const ids = new Set(etat[cle].map((x) => x.id));
       etat[cle].push(...(d[cle] || []).filter((x) => !ids.has(x.id)));
     };
-    for (const cle of ['types', 'notes', 'blocs', 'pauses', 'etiquettes', 'personnes']) ajoute(cle);
+    for (const cle of ['types', 'notes', 'pauses', 'etiquettes', 'personnes']) ajoute(cle);
     etat.jours = { ...(d.jours || {}), ...etat.jours };
   }
   if (code) etat.reglages.code = code; else delete etat.reglages.code;
@@ -296,7 +279,6 @@ export function effacerAvecCode() {
 
 export function chargerExemple(ex) {
   etat.notes.push(...ex.notes);
-  etat.blocs.push(...ex.blocs);
   for (const p of ex.personnes) if (!etat.personnes.some((x) => x.id === p.id)) etat.personnes.push(p);
   enregistrer();
 }
@@ -304,9 +286,7 @@ export function chargerExemple(ex) {
 export const aDesExemples = () => etat.notes.some((n) => n.exemple);
 
 export function retirerExemples() {
-  const blocsEx = new Set(etat.notes.filter((n) => n.exemple && n.bloc).map((n) => n.bloc));
   etat.notes = etat.notes.filter((n) => !n.exemple);
-  etat.blocs = etat.blocs.filter((b) => !blocsEx.has(b.id));
   etat.personnes = etat.personnes.filter((p) => !p.exemple);
   enregistrer();
 }

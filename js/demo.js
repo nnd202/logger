@@ -10,13 +10,12 @@ const hm = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(
 export function exemple(auj = aujourdhui()) {
   const r = graine(7);
   const notes = [];
-  const blocs = [];
   const personnes = [{ id: 'ex-p1', nom: 'Léa', exemple: true }, { id: 'ex-p2', nom: 'Sam', exemple: true }];
   let i = 0;
   // Une heure « m » (en minutes depuis minuit) d'un jour « d » ; au-delà de 24 h, on passe au lendemain.
   const ts = (d, m) => `${m >= 1440 ? ajouterJours(d, 1) : d}T${hm(m)}`;
   const n = (d, m, type, extra = {}) => {
-    const x = { id: `ex-${i++}`, type, debut: ts(d, m), fin: null, enCours: false, precision: 'exacte', intensite: null, issue: null, quantite: '', aide: null, motif: null, activite: '', plaisir: null, maitrise: null, facettes: [], avecQui: [], personnes: [], etiquettes: [], phrase: '', bloc: null, cree: 0, exemple: true, ...extra };
+    const x = { id: `ex-${i++}`, type, debut: ts(d, m), fin: null, enCours: false, precision: 'exacte', intensite: null, issue: null, quantite: '', aide: null, motif: null, activite: '', plaisir: null, maitrise: null, facettes: [], avecQui: [], personnes: [], etiquettes: [], phrase: '', chaine: null, cree: 0, exemple: true, ...extra };
     if (extra.duree) { x.fin = ts(d, m + extra.duree); delete x.duree; }
     notes.push(x);
     return x;
@@ -42,15 +41,21 @@ export function exemple(auj = aujourdhui()) {
       if (cede) ch.push(n(d, t0 + 75, 'c-ecrans', { duree: 40 + Math.floor(r() * 30), quantite: '' }));
       ch.push(n(d, t0 + 100, 'fatigue', { intensite: 7 + Math.floor(r() * 3) }));
       if (r() < 0.7) ch.push(n(d, t0 + 150, r() < 0.5 ? 'coucher' : 'respiration', { aide: r() < 0.7 ? 'oui' : 'unpeu' }));
-      if (k === 1) {
-        const b = { id: 'ex-bloc', nom: 'Soirée difficile' };
-        blocs.push(b);
-        for (const x of ch) x.bloc = b.id;
-      }
+      // Les notes de la soirée sont enchaînées à la première (comme en touchant « Enchaîner »).
+      for (const x of ch.slice(1)) x.chaine = ch[0].id;
     }
     if (r() < 0.25) n(d, 14 * 60 + 30, 'c-reverie', { duree: 45, etiquettes: ['t13'] });
     if (r() < 0.2) n(d, 15 * 60, 'c-dormir', { duree: 70, motif: r() < 0.6 ? 'pour fuir' : 'pour récupérer' });
-    if (k > 0) n(d, 23 * 60 + 20 + Math.floor(r() * 50), 'endormissement', { duree: 30 + Math.floor(r() * 60), intensite: 2 + Math.floor(r() * 7) });
+    if (r() < 0.15) n(d, 11 * 60 + Math.floor(r() * 120), r() < 0.5 ? 'tete' : 'ventre', { intensite: 3 + Math.floor(r() * 5) });
+    if (r() < 0.2) n(d, 3 * 60 + Math.floor(r() * 60), 'reveil', { precision: 'vers' });
+    if (k > 0) n(d, 23 * 60 + 10 + Math.floor(r() * 50), 'endormissement', { duree: [30, 30, 45, 90][Math.floor(r() * 4)], intensite: 2 + Math.floor(r() * 7), precision: 'vers' });
   }
-  return { notes, blocs, personnes };
+  // Rien après l'heure actuelle aujourd'hui.
+  const maintenant = `${auj}T${hm(new Date().getHours() * 60 + new Date().getMinutes())}`;
+  const passees = notes.filter((x) => x.debut <= maintenant);
+  for (const x of passees) {
+    if (x.fin && x.fin > maintenant) x.fin = maintenant;
+    if (x.chaine && !passees.some((y) => y.id === x.chaine)) x.chaine = null;
+  }
+  return { notes: passees, personnes };
 }
