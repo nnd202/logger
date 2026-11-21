@@ -1,6 +1,6 @@
 // État de Logger v2 : un seul journal de notes, gardé en JSON dans le stockage du navigateur.
 import { uid, horodatage, jourDe, minutes } from './calc.js';
-import { typesDeDepart, etiquettesDeDepart, DEBUT_JOURNEE, ICONES, ICONE_FAMILLE } from './catalogue.js';
+import { typesDeDepart, etiquettesDeDepart, DEBUT_JOURNEE, ICONES, ICONE_FAMILLE, ECHELLE_COPING } from './catalogue.js';
 import * as C from './crypto.js';
 
 const CLE = 'logger2-etat'; // état en clair (tant qu'aucun code n'existe)
@@ -26,7 +26,7 @@ export function vierge() {
     pauses: [], // [{ id, du, au | null }]
     etiquettes: etiquettesDeDepart(),
     personnes: [], // [{ id, nom }]
-    reglages: { echelleHeure: 48, planningOuvert: false },
+    reglages: { echelleHeure: 48, planningOuvert: true },
     colonnes: {}, // { 'AAAA-MM-JJ': [id de type, …] } : ordre des colonnes du planning, fixé par l'utilisateur
   };
 }
@@ -40,6 +40,8 @@ function normaliser(e) {
   const ids = new Set(r.types.map((t) => t.id));
   for (const t of v.types) if (!ids.has(t.id)) r.types.push(t);
   for (const t of r.types) if (!t.icone) t.icone = ICONES[t.id] || ICONE_FAMILLE[t.famille] || '•';
+  // v2.0.5 : le coping a lui aussi son intensité.
+  for (const t of r.types) if (t.famille === 'coping' && !t.echelle) t.echelle = { ...ECHELLE_COPING };
   // v2.0 → v2.0.1 : les blocs deviennent des enchaînements (la plus ancienne note en tête).
   if (Array.isArray(r.blocs)) {
     for (const b of r.blocs) {
@@ -174,6 +176,30 @@ export function supprimerNote(id) {
   }
   enregistrer();
   return n;
+}
+
+// --- Envies : cédée ou traversée, déduit ---------------------------------------------------------
+
+/** Une envie et un coping parlent du même sujet : paire du catalogue (e-x / c-x), même nom ou même icône. */
+export function memeSujet(envie, coping) {
+  if (!envie || !coping) return false;
+  if (envie.id.startsWith('e-') && coping.id === `c-${envie.id.slice(2)}`) return true;
+  return envie.nom.trim().toLowerCase() === coping.nom.trim().toLowerCase() || (!!envie.icone && envie.icone === coping.icone);
+}
+
+/**
+ * Issue d'une envie, jamais demandée : « cede » si un coping du même sujet suit, le même jour, avant la
+ * prochaine envie du même sujet ; sinon « traversee » une fois la journée finie ; « attente » aujourd'hui.
+ */
+export function issueEnvie(n, aujourdhui) {
+  const t = type(n.type);
+  if (t?.famille !== 'envie') return null;
+  const jour = jourDe(n.debut, DEBUT_JOURNEE);
+  const duJour = notesDuJour(jour).filter((x) => x.debut >= n.debut && x.id !== n.id);
+  const prochaine = duJour.find((x) => x.type === n.type && x.debut > n.debut);
+  const coping = duJour.find((x) => type(x.type)?.famille === 'coping' && memeSujet(t, type(x.type)) && (!prochaine || x.debut < prochaine.debut));
+  if (coping) return { issue: 'cede', coping };
+  return { issue: jour < aujourdhui ? 'traversee' : 'attente' };
 }
 
 /** Notes enchaînées à une tête, dans l'ordre. */

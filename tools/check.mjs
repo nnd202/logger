@@ -63,10 +63,10 @@ verifier('plage après minuit visible le lendemain', S.plagesTraversantes('2026-
 const fin = S.ajouterNote({ type: 'c-reverie', debut: '2026-11-20T14:00', enCours: true });
 S.arreter(fin, '2026-11-20T14:45');
 verifier('plage arrêtée', !fin.enCours && fin.fin === '2026-11-20T14:45');
-const e1 = S.ajouterEtiquette('Bruit');
-S.modifierNote(n1, { etiquettes: ['t7', e1.id] });
-S.fusionnerEtiquettes(e1.id, 't7');
-verifier('fusion d\'étiquettes', n1.etiquettes.length === 1 && n1.etiquettes[0] === 't7' && !S.etiquette(e1.id));
+const v1e = S.ajouterEtiquette('Bruit');
+S.modifierNote(n1, { etiquettes: ['t7', v1e.id] });
+S.fusionnerEtiquettes(v1e.id, 't7');
+verifier('fusion d\'étiquettes', n1.etiquettes.length === 1 && n1.etiquettes[0] === 't7' && !S.etiquette(v1e.id));
 
 // 6. Export chiffré, import.
 S.chargerExemple(exemple('2026-11-20'));
@@ -79,7 +79,7 @@ const entete = Cr.lireEnTete(texte);
 let refuse = false; try { await Cr.dechiffrer(entete, '111111'); } catch (e) { refuse = e.message === 'code'; }
 verifier('mauvais code refusé', refuse);
 const relu = await Cr.dechiffrer(entete, '258013');
-verifier('bon code : tout revient', relu.notes.length === donnees.notes.length && relu.notes.some((x) => x.chaine));
+verifier('bon code : tout revient', relu.notes.length === donnees.notes.length && relu.notes.some((x) => x.phrase));
 let v1 = false; try { Cr.lireEnTete(JSON.stringify({ format: 'logger-export', version: 1 })); } catch { v1 = true; }
 verifier('export v1 refusé', v1);
 const avant = S.get().notes.length;
@@ -131,6 +131,22 @@ verifier('coffre : copie restaurée', S2.get().notes.length === 2);
 await S2.dechiffrerTout();
 await S2.ecrituresFinies();
 verifier('coffre : retiré, données en clair', !memoire.has('logger2-coffre') && (memoire.get('logger2-etat') || '').includes('deuxieme-secret'));
+
+// 10. Envies : cédée ou traversée, déduit ; coping avec intensité.
+S._remplacer({ version: 2, notes: [] });
+verifier('coping : échelle propre', S.type('c-cigarette')?.echelle?.haut === 'déchaînement' && Ca.SAISIE.coping.intensite);
+S._remplacer({ version: 2, types: [{ id: 'c-manger', famille: 'coping', nom: 'Manger', visible: true }], notes: [] });
+verifier('coping : échelle ajoutée aux anciens types', !!S.type('c-manger').echelle);
+const envA = S.ajouterNote({ type: 'e-cigarette', debut: '2026-11-20T10:00' });
+const envB = S.ajouterNote({ type: 'e-cigarette', debut: '2026-11-20T18:00' });
+const c1 = S.ajouterNote({ type: 'c-cigarette', debut: '2026-11-20T18:10' });
+const envC = S.ajouterNote({ type: 'e-manger', debut: '2026-11-20T20:00' });
+const envD = S.ajouterNote({ type: 'e-manger', debut: '2026-11-21T09:00' });
+S.ajouterNote({ type: 'c-cigarette', debut: '2026-11-21T09:30' });
+verifier('envie suivie de son coping : cédée', S.issueEnvie(envB, '2026-11-21').issue === 'cede' && S.issueEnvie(envB, '2026-11-21').coping === c1);
+verifier('envie avant une autre envie du même sujet : traversée', S.issueEnvie(envA, '2026-11-21').issue === 'traversee');
+verifier('coping d\'un autre sujet : ne compte pas', S.issueEnvie(envC, '2026-11-21').issue === 'traversee');
+verifier('aujourd\'hui sans coping : en attente', S.issueEnvie(envD, '2026-11-21').issue === 'attente');
 
 console.log(`${ok} contrôles réussis, ${ko} échec${ko > 1 ? 's' : ''}`);
 process.exit(ko ? 1 : 0);

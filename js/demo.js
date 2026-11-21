@@ -27,7 +27,7 @@ export function exemple(auj = aujourdhui()) {
     if (r() < 0.35) n(d, 18 * 60 + 30, 'loisir', { duree: 80, activite: 'PWA avec Claude', plaisir: 8, maitrise: 8 + Math.floor(r() * 2), facettes: ['choisie', 'ecran', 'creatif'], avecQui: ['seul'] });
     if (r() < 0.25) n(d, 19 * 60, 'sortie', { duree: 150, activite: 'Dîner', plaisir: 7, maitrise: 5, facettes: ['choisie', 'dehors'], avecQui: ['amis'], personnes: [r() < 0.5 ? 'ex-p1' : 'ex-p2'] });
     if (r() < 0.6) {
-      // Une soirée en chaîne : déclencheur, agitation, mal-être, fatigue, envie, coping, action aidante.
+      // Une soirée : déclencheur, agitation, mal-être, fatigue, envie, coping, action aidante.
       const t0 = 20 * 60 + 40 + Math.floor(r() * 40);
       const ch = [];
       ch.push(n(d, t0, 'declencheur', { etiquettes: [r() < 0.5 ? 't6' : 't5'], phrase: r() < 0.3 ? 'Mail du chef en fin de journée' : '' }));
@@ -37,12 +37,10 @@ export function exemple(auj = aujourdhui()) {
       ch.push(n(d, t0 + 50, 'agitation', { intensite: 7 + Math.floor(r() * 3) }));
       ch.push(n(d, t0 + 55, 'maletre', { intensite: 7 + Math.floor(r() * 2) }));
       const cede = r() < 0.6;
-      ch.push(n(d, t0 + 70, 'e-ecrans', { intensite: 6 + Math.floor(r() * 4), issue: cede ? 'cede' : 'traversee' }));
-      if (cede) ch.push(n(d, t0 + 75, 'c-ecrans', { duree: 40 + Math.floor(r() * 30), quantite: '' }));
+      ch.push(n(d, t0 + 70, 'e-ecrans', { intensite: 6 + Math.floor(r() * 4) }));
+      if (cede) ch.push(n(d, t0 + 75, 'c-ecrans', { duree: 40 + Math.floor(r() * 30), intensite: 3 + Math.floor(r() * 7) }));
       ch.push(n(d, t0 + 100, 'fatigue', { intensite: 7 + Math.floor(r() * 3) }));
       if (r() < 0.7) ch.push(n(d, t0 + 150, r() < 0.5 ? 'coucher' : 'respiration', { aide: r() < 0.7 ? 'oui' : 'unpeu' }));
-      // Les notes de la soirée sont enchaînées à la première (comme en touchant « Enchaîner »).
-      for (const x of ch.slice(1)) x.chaine = ch[0].id;
     }
     if (r() < 0.25) n(d, 14 * 60 + 30, 'c-reverie', { duree: 45, etiquettes: ['t13'] });
     if (r() < 0.2) n(d, 15 * 60, 'c-dormir', { duree: 70, motif: r() < 0.6 ? 'pour fuir' : 'pour récupérer' });

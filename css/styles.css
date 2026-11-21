@@ -609,3 +609,12 @@ svg.pl-liens { position: absolute; top: 0; left: 0; height: 100% !important; poi
 .pl-entete.saisi { border-style: dashed; transform: scale(1.18); box-shadow: 0 6px 16px rgba(60, 30, 45, .25); position: relative; z-index: 6; }
 .plc.saisie { background: color-mix(in srgb, var(--c) 9%, transparent); outline: 2px dashed color-mix(in srgb, var(--c) 45%, white); outline-offset: -2px; border-radius: 10px; }
 .aide-verrou { min-height: 18px; margin: -8px 0 -6px; font-size: 13.5px; color: rgba(255,255,255,.9); text-align: center; }
+/* v2.0.5 : empreinte (pastille vide en attente), issue d'une envie */
+.pln.empreinte { z-index: 6; }
+.pln.empreinte .pln-pastille { background: color-mix(in srgb, var(--c) 14%, white); border: 2.5px solid var(--c); color: var(--c); box-shadow: 0 4px 12px rgba(60, 30, 45, .18); animation: empreinte .18s ease-out; }
+.pln.empreinte .pln-pastille svg { width: 16px; height: 16px; }
+.plc-ajout { --c: #8f9db0; }
+@keyframes empreinte { from { transform: scale(.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.issue-envie { margin: 10px 0 2px; padding: 9px 12px; border-radius: 10px; font-size: 13.5px; background: #f6f3f4; color: var(--texte-2, #555); }
+.issue-envie.traversee { background: color-mix(in srgb, #4f9d5d 12%, white); color: #2f6b3a; }
+.issue-envie.cede { background: color-mix(in srgb, #8a6fc4 12%, white); color: #5a4590; }

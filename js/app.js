@@ -1,12 +1,12 @@
 // Logger v2 : un journal unique de santé mentale.
 // Écran du jour : pastilles de jours, mini-frise des 24 heures (le planning replié),
-// planning déployable, puis les notes du jour en cartes, chaque carte portant son enchaînement.
+// planning déployable, puis les notes du jour en cartes, dans l'ordre.
 import * as S from './store.js';
 import * as V from './verrou.js';
 import * as C from './crypto.js';
 import { exemple } from './demo.js';
 import { activerBulles, teinte } from './graph.js';
-import { FAMILLES, famille, SAISIE, CERCLES, FACETTES, MOMENTS, AIDE, ISSUES, DEBUT_JOURNEE, LATENCES, ZONE_MIN, SUGGESTIONS } from './catalogue.js';
+import { FAMILLES, famille, SAISIE, CERCLES, FACETTES, MOMENTS, AIDE, DEBUT_JOURNEE, LATENCES, ZONE_MIN, SUGGESTIONS } from './catalogue.js';
 import {
   aujourdhui, heureMaintenant, ajouterJours, jourSemaine, dateCourte, dateNum, dateLongue, JOURS_COURTS,
   horodatage, minutes, ajouterMinutes, jourDe, heureDe, texteDuree, pluriel, ilYA, majuscule,
@@ -33,7 +33,6 @@ const I = {
   cadenas: '<svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>',
   stop: '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>',
   moins: '<svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg>',
-  chaine: '<svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>',
   guide: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.5a2.5 2.5 0 1 1 3.4 2.3c-.6.3-1 .8-1 1.5v.4M12 16.8v.2"/></svg>',
 };
 
@@ -117,7 +116,9 @@ const dureeNote = (n) => (n.fin ? minutes(n.fin) - minutes(n.debut) : n.enCours 
 
 function details(n) {
   const bouts = [];
-  if (n.issue) bouts.push(ISSUES.find((x) => x.id === n.issue)?.nom.toLowerCase());
+  const iss = S.issueEnvie(n, auj());
+  if (iss?.issue === 'cede') bouts.push(`cédée (${nomType(iss.coping.type).toLowerCase()} à ${sansZero(heureDe(iss.coping.debut))})`);
+  if (iss?.issue === 'traversee') bouts.push('traversée');
   if (n.aide) bouts.push(AIDE.find((x) => x.id === n.aide)?.nom.toLowerCase());
   if (n.motif) bouts.push(n.motif);
   if (n.activite) bouts.push(n.activite);
@@ -178,9 +179,6 @@ function vueJour() {
   const titre = d === a ? "Aujourd'hui" : d === ajouterJours(a, -1) ? 'Hier' : majuscule(dateCourte(d));
   const encours = S.enCours();
   const ouvert = S.reglages().planningOuvert;
-  // Cartes : une tête d'enchaînement par carte ; une suite dont la tête est un autre jour fait sa propre carte.
-  const ids = new Set(notes.map((n) => n.id));
-  const tetes = notes.filter((n) => !n.chaine || !ids.has(n.chaine));
 
   app.innerHTML = `
     <header class="bandeau-tete bandeau-jour">
@@ -203,7 +201,7 @@ function vueJour() {
     </section>
     ${!S.reglages().code ? `<div class="rappel-code">${I.cadenas}<span>Aucun code : l'appli s'ouvre sans protection.</span><button class="lien" data-action="code">Créer un code</button></div>` : ''}
     ${statut === 'pause' ? `<div class="statut-jour statut-pause"><span>Pause du suivi depuis le ${dateNum(pause.du)}</span><button class="lien" data-action="fin-pause">Reprendre</button></div>` : ''}
-    ${tetes.length ? `<ul class="cartes">${tetes.map((t) => carteNote(t)).join('')}</ul>` : `
+    ${notes.length ? `<ul class="cartes">${notes.map((t) => carteNote(t)).join('')}</ul>` : `
       <div class="jour-vide">
         <p>${d === a ? 'Rien de noté pour l\'instant. Touche <b>+</b> en bas quand quelque chose se passe.' : 'Aucune note ce jour-là.'}</p>
         ${statut === 'calme'
@@ -242,24 +240,18 @@ function miniFrise(d, notes) {
     <span class="mini-heures"><span>0 h</span><span>6 h</span><span>12 h</span><span>18 h</span><span>24 h</span></span>`;
 }
 
-/** Carte d'une note et de son enchaînement. */
+/** Carte d'une note. */
 function carteNote(t) {
-  const suites = S.suitesDe(t.id);
   const f = familleDe(t);
   const tete = S.type(t.type);
-  const venueDAvant = t.chaine && S.note(t.chaine);
   return `<li class="carte-note" style="--c:${f?.couleur}">
     <button class="cn-tete" data-action="note" data-id="${t.id}">
       <span class="cn-famille">${f?.un || ''}${t.fin || t.enCours ? ' · plage' : ''}</span>
       <span class="cn-titre"><b>${esc(tete?.nom || 'Type supprimé')}</b>${t.intensite != null ? `<span class="valeur">${t.intensite}</span>` : ''}</span>
-      <span class="cn-quand">${esc(quand(t, true))}${venueDAvant ? ` · suite du ${dateCourte(venueDAvant.debut.slice(0, 10))}` : ''}</span>
+      <span class="cn-quand">${esc(quand(t, true))}</span>
       ${pastilles(t) ? `<span class="cn-pastilles">${pastilles(t)}</span>` : ''}
       ${t.phrase ? `<em class="cn-phrase">${esc(t.phrase)}</em>` : ''}
     </button>
-    ${suites.length ? `<ol class="cn-suites">${suites.map((s) => `<li><button data-action="note" data-id="${s.id}" style="--c:${couleurDe(s)}">
-      <span class="cs-quand">${esc(quand(s))}</span><span class="cs-texte"><b><i class="pastille-mini"></i>${esc(nomType(s.type))}</b>${details(s).length || s.etiquettes.length ? `<small>${esc([...details(s), ...s.etiquettes.map((id) => S.etiquette(id)?.nom).filter(Boolean)].join(' · '))}</small>` : ''}</span>
-      ${s.intensite != null ? `<span class="valeur">${s.intensite}</span>` : ''}</button></li>`).join('')}</ol>` : ''}
-    <button class="cn-enchainer" data-action="enchainer" data-id="${t.id}">${I.chaine} Enchaîner une note</button>
   </li>`;
 }
 
@@ -298,7 +290,7 @@ function planning(d, notes) {
       const a = debutM(n);
       const barre = n.fin || n.enCours ? Math.max(0, y(finM(n)) - y(a)) : 0;
       const veille = minutes(n.debut) < zero;
-      return `<div class="pln ${t?.famille === 'envie' ? 'anneau' : ''} ${n.issue === 'cede' ? 'cede' : ''} ${n.precision !== 'exacte' ? 'approx' : ''} ${veille ? 'veille' : ''}" data-id="${n.id}" style="top:${y(a)}px">
+      return `<div class="pln ${t?.famille === 'envie' ? 'anneau' : ''} ${S.issueEnvie(n, auj())?.issue === 'cede' ? 'cede' : ''} ${n.precision !== 'exacte' ? 'approx' : ''} ${veille ? 'veille' : ''}" data-id="${n.id}" style="top:${y(a)}px">
         ${barre ? `<div class="pln-barre ${t?.endormissement ? 'degrade' : ''} ${n.enCours ? 'encours' : ''}" style="height:${Math.max(22, barre)}px">${n.fin && !n.enCours ? `<span class="pln-fin" ${barre < 44 ? 'hidden' : ''}>${sansZero(heureDe(n.fin))}</span>` : ''}</div>` : ''}
         <span class="pln-heure">${veille ? 'veille' : `${n.precision === 'vers' ? '~' : ''}${sansZero(heureDe(n.debut))}`}</span>
         <button class="pln-pastille" data-pastille aria-label="${esc(`${nomType(n.type)} · ${quand(n)}${n.intensite != null ? ` · ${n.intensite}` : ''}`)}">${esc(t?.icone || '•')}${n.intensite != null ? `<small>${n.intensite}</small>` : ''}</button>
@@ -338,12 +330,22 @@ function planning(d, notes) {
           <li>Toucher une icône du haut : son nom et sa famille. Appui long sur une icône du haut : ranger la colonne ailleurs.</li>
           <li>Toucher une pastille : sa fiche. Appui long sur la pastille : la déplacer (son contour passe en pointillés).</li>
           <li>Appui long sur la poignée sous la pastille, puis tirer : la durée (la barre passe en pointillés ; remonter jusqu'à la pastille l'annule). L'heure de fin s'écrit au bas de la barre.</li>
-          <li>Toucher un vide : noter à cette heure. Un nouveau type s'ajoute en dernière colonne ; rien ne change de place tout seul.</li>
+          <li>Toucher un vide : une pastille vide à cette heure ; la toucher pour noter, toucher ailleurs pour l'effacer. Un nouveau type s'ajoute en dernière colonne ; rien ne change de place tout seul.</li>
         </ul>` : ''}
     </div>`;
 }
 
 let legendeOuverte = false;
+
+// Empreinte en attente (une seule à la fois) ; un toucher hors du planning l'efface aussi.
+let empreinte = null;
+function effacerEmpreinte() {
+  empreinte?.remove();
+  empreinte = null;
+}
+document.addEventListener('click', (ev) => {
+  if (empreinte && !ev.target.closest('.pl-corps')) effacerEmpreinte();
+}, true);
 
 /** Gestes du planning : toucher, appui long pour déplacer, poignée pour la durée, toucher un vide. */
 function brancherPlanning() {
@@ -451,7 +453,7 @@ function brancherPlanning() {
     bloquer = false;
     if (sorte !== 'attente-poignee') cacher();
     if (annule) return sorte === 'deplacer' || sorte === 'etirer' ? vueJour() : undefined;
-    if (sorte === 'attente') return fenetreNote(n);
+    if (sorte === 'attente') return empreinte ? effacerEmpreinte() : fenetreNote(n);
     if (sorte === 'attente-poignee') {
       montrer(ev, 'Appui long sur la poignée, puis tire');
       bulle.minuteur = setTimeout(cacher, 1800);
@@ -561,27 +563,40 @@ function brancherPlanning() {
     clearTimeout(bulle.minuteur);
     bulle.minuteur = setTimeout(cacher, 2500);
   });
-  // Toucher un vide d'une colonne : noter à cette heure (ce type, ou au choix dans la dernière colonne).
+  // Toucher un vide d'une colonne : une pastille vide (empreinte) à cette heure. La toucher ouvre la saisie ;
+  // toucher ailleurs l'efface sans en créer une autre (une seconde chance en cas de toucher involontaire).
   corps.addEventListener('click', (ev) => {
+    const vise = ev.target.closest('[data-empreinte]');
+    if (vise) {
+      const { type: tid, debut } = empreinte.dataset;
+      effacerEmpreinte();
+      return tid ? etape2(S.type(tid), { debut }) : vueNoter({ debut });
+    }
+    if (empreinte) return effacerEmpreinte();
     const col = ev.target.classList.contains('plc') ? ev.target : null;
     if (!col) return;
     const m = tempsDe(ev.clientY);
     const ts = horodatage(new Date(m * 60000));
     if (ts > horodatage()) return toast("Cette heure n'est pas encore arrivée");
-    if (!col.dataset.type) return vueNoter({ debut: ts });
-    etape2(S.type(col.dataset.type), { debut: ts });
+    empreinte = document.createElement('div');
+    empreinte.className = 'pln empreinte';
+    empreinte.dataset.debut = ts;
+    empreinte.dataset.type = col.dataset.type;
+    empreinte.style.top = `${yDe(m)}px`;
+    empreinte.innerHTML = `<span class="pln-heure">${sansZero(heureDe(ts))}</span><button class="pln-pastille" data-empreinte aria-label="Noter à ${sansZero(heureDe(ts))}">${I.plus}</button>`;
+    col.append(empreinte);
+    navigator.vibrate?.(5);
   });
 }
 
 // --- Saisie -------------------------------------------------------------------------------------
 
-/** Fenêtre de saisie : hauteur fixe, les onglets ne rechargent que la grille. contexte.chaine : enchaîner. */
+/** Fenêtre de saisie : hauteur fixe, les onglets ne rechargent que la grille. */
 function vueNoter(contexte = {}) {
   const us = S.usages('type');
   const frequents = [...us].sort((a, b) => b[1] - a[1]).map(([id]) => S.type(id)).filter((t) => t?.visible).slice(0, 6);
-  const tete = contexte.chaine ? S.note(contexte.chaine) : null;
   ouvrirFenetre(`<div class="saisie">
-    <h2>${tete ? `Enchaîner <small>à ${esc(nomType(tete.type))} (${sansZero(heureDe(tete.debut))})</small>` : `Noter <small>${contexte.debut ? `à ${sansZero(heureDe(contexte.debut))}` : heureMaintenant()}</small>`}</h2>
+    <h2>Noter <small>${contexte.debut ? `à ${sansZero(heureDe(contexte.debut))}` : heureMaintenant()}</small></h2>
     ${frequents.length ? `<p class="titre-choix">Les plus utilisés</p><div class="choix frequents">${frequents.map((t) => `<button class="puce type-puce" style="--c:${famille(t.famille).couleur}" data-type="${t.id}"><span class="emoji">${esc(t.icone)}</span>${esc(t.nom)}</button>`).join('')}</div>` : ''}
     <div class="onglets" role="tablist">${FAMILLES.map((f) => `<button class="${f.id === familleSaisie ? 'choisi' : ''}" style="--c:${f.couleur}" data-famille="${f.id}">${f.nom}</button>`).join('')}</div>
     <div class="saisie-corps" data-grille></div>
@@ -616,20 +631,12 @@ function vueNoter(contexte = {}) {
 function etape2(t, contexte = {}) {
   const s = SAISIE[t.famille];
   const coul = famille(t.famille).couleur;
-  const base = { type: t.id, chaine: contexte.chaine || null };
+  const base = { type: t.id };
   if (contexte.debut) base.debut = contexte.debut;
-  // Enchaîner à une note d'un jour passé : la nouvelle note se place juste après la dernière de l'enchaînement,
-  // et sa fiche s'ouvre pour ajuster l'heure.
-  const tete = contexte.chaine ? S.note(contexte.chaine) : null;
-  if (tete && jourDe(tete.debut, DEBUT_JOURNEE) < auj()) {
-    const derniere = [tete, ...S.suitesDe(tete.id)].pop();
-    let debut = ajouterMinutes(derniere.fin || derniere.debut, 10);
-    if (jourDe(debut, DEBUT_JOURNEE) !== jourDe(tete.debut, DEBUT_JOURNEE)) debut = `${tete.debut.slice(0, 10)}T23:59`;
-    Object.assign(base, { debut, precision: 'vers', retro: true });
-  }
   if (t.endormissement) return etapeEndormissement(t, base);
-  // Depuis le planning : la note se pose à l'heure touchée, la durée se tire ensuite.
-  if (contexte.debut && !(s.intensite && t.echelle)) return enregistre(base, `${t.nom} noté à ${sansZero(heureDe(base.debut))}`);
+  // Depuis le planning : la note se pose à l'heure touchée, la durée se tire ensuite
+  // (une plage n'a pas d'écran « quand ? » ; son intensité se donne dans le panneau qui suit).
+  if (contexte.debut && (s.plage || !(s.intensite && t.echelle))) return enregistre(base, `${t.nom} noté à ${sansZero(heureDe(base.debut))}`);
   if (s.plage) {
     const choix = [[0, 'Là, maintenant'], ['go', 'Je commence'], [15, 'Depuis 15 min'], [30, 'Depuis 30 min'], [45, 'Depuis 45 min'], [60, 'Depuis 1 h'], [90, 'Depuis 1 h 30'], [120, 'Depuis 2 h']];
     ouvrirFenetre(`<div class="saisie" style="--c:${coul}">
@@ -645,7 +652,6 @@ function etape2(t, contexte = {}) {
       if (q === 'autre') { const n = S.ajouterNote({ ...base, debut: ajouterMinutes(maint, -30), fin: maint }); if (jourAffiche === auj()) vueJour(); return fenetreNote(n, true); }
       if (q === 'go') return enregistre({ ...base, enCours: true }, `${t.nom} : c'est parti`);
       const m = Number(q);
-      if (base.retro) return enregistre({ ...base, fin: m ? ajouterMinutes(base.debut, m) : null }, t.nom);
       return enregistre(m ? { ...base, debut: ajouterMinutes(maint, -m), fin: maint } : base, m ? `${t.nom} : ${texteDuree(m)}` : `${t.nom} noté`);
     });
     return;
@@ -710,15 +716,7 @@ function etapeEndormissement(t, base) {
 }
 
 function enregistre(champs, message, jour = jourDe(champs.debut || horodatage(), DEBUT_JOURNEE)) {
-  const retro = champs.retro;
-  delete champs.retro;
-  if (retro && champs.fin && champs.debut > champs.fin) champs.fin = ajouterMinutes(champs.debut, 30);
   const n = S.ajouterNote(champs);
-  if (retro) {
-    if (jourAffiche === jourDe(n.debut, DEBUT_JOURNEE)) vueJour();
-    fenetreNote(n);
-    return toast("Placée après l'enchaînement : ajuste l'heure si besoin");
-  }
   fermer();
   // On attend que le retour d'historique de la fenêtre soit passé avant de changer de jour.
   setTimeout(() => { if (jourAffiche !== jour) aller(lienJour(jour)); else route(); complement(n, message); }, 60);
@@ -731,11 +729,14 @@ function complement(n, message) {
   const s = SAISIE[t.famille];
   const puces = (liste, champ) => `<div class="choix">${liste.map((x) => `<button class="puce ${n[champ] === x.id ? 'choisi' : ''}" data-champ="${champ}" data-val="${esc(x.id)}">${esc(x.nom)}</button>`).join('')}</div>`;
   let rapide = '';
-  if (s.issue) rapide = puces(ISSUES, 'issue');
-  else if (s.aide) rapide = puces(AIDE, 'aide');
+  if (t.famille === 'coping' && t.echelle) {
+    // Coping : à quel point je me suis lâché, en un toucher, facultatif.
+    rapide = `<div class="grille-intensite petite" style="grid-template-columns: repeat(11, 1fr)">${Array.from({ length: 11 }, (_, v) => `<button class="${n.intensite === v ? 'choisi' : ''}" data-intensite="${v}" style="--k:${v / 10}">${v}</button>`).join('')}</div>
+      <div class="echelle-legende"><span>${esc(t.echelle.bas)}</span><span>${esc(t.echelle.haut)}</span></div>`;
+  } else if (s.aide) rapide = puces(AIDE, 'aide');
   else if (t.motifs) rapide = puces(t.motifs.map((m) => ({ id: m, nom: m })), 'motif');
   else if (t.famille === 'activite') rapide = `<div class="choix">${CERCLES.map((c) => `<button class="puce ${n.avecQui.includes(c.id) ? 'choisi' : ''}" data-cercle="${c.id}">${c.nom}</button>`).join('')}</div>`;
-  else if (['declencheur', 'etat', 'corps'].includes(t.famille)) {
+  else if (['declencheur', 'etat', 'corps', 'envie'].includes(t.famille)) {
     rapide = `<div class="choix">${etiquettesParUsage().slice(0, 6).map((e) => `<button class="puce etq ${n.etiquettes.includes(e.id) ? 'choisi' : ''}" data-etq="${e.id}">${esc(e.nom)}</button>`).join('')}</div>`;
   }
   panneau.innerHTML = `<div class="panneau-tete" style="--c:${famille(t.famille).couleur}"><span><i class="pastille-mini"></i>${esc(message)}</span>
@@ -752,7 +753,10 @@ function complement(n, message) {
     if (b.dataset.p === 'fermer') { panneau.hidden = true; return; }
     if (b.dataset.p === 'details') { panneau.hidden = true; return fenetreNote(n); }
     if (b.dataset.p === 'annuler') { S.supprimerNote(n.id); panneau.hidden = true; route(); return toast('Note annulée'); }
-    if (b.dataset.champ) {
+    if (b.dataset.intensite) {
+      const v = Number(b.dataset.intensite);
+      S.modifierNote(n, { intensite: n.intensite === v ? null : v });
+    } else if (b.dataset.champ) {
       const v = b.dataset.val;
       S.modifierNote(n, { [b.dataset.champ]: n[b.dataset.champ] === v ? null : v });
     } else if (b.dataset.cercle) {
@@ -799,14 +803,11 @@ function fenetreNote(n, nouvelle = false) {
     <input type="hidden" name="${champ}" value="${val ?? ''}">`;
   const unChoix = (champ, liste, val, titre) => `<p class="titre-choix">${titre}<em>facultatif</em></p><div class="choix" data-un="${champ}">${liste.map((x) => `<button type="button" class="puce ${val === x.id ? 'choisi' : ''}" data-v="${esc(x.id)}">${esc(x.nom)}</button>`).join('')}</div><input type="hidden" name="${champ}" value="${esc(val ?? '')}">`;
   const plusieurs = (attr, liste, vals) => liste.map((x) => `<button type="button" class="puce ${attr === 'etq' ? 'etq' : ''} ${vals.includes(x.id) ? 'choisi' : ''}" data-${attr}="${x.id}">${esc(x.nom)}</button>`).join('');
-  const tete = n.chaine ? S.note(n.chaine) : null;
-  const suites = S.suitesDe(n.id);
+  const issue = S.issueEnvie(n, auj());
   const avecFin = !!(n.fin || n.enCours);
 
   ouvrirFenetre(`<form style="--c:${coul}">
     <h2><i class="pastille-mini"></i>${esc(t?.nom || 'Note')} <small>${nouvelle ? 'nouvelle note' : 'fiche de la note'}</small></h2>
-    ${tete ? `<p class="aide" data-chaine>Enchaînée à <b>${esc(nomType(tete.type))}</b> (${sansZero(heureDe(tete.debut))}). <button type="button" class="lien" data-f="detacher">Détacher</button></p>` : ''}
-    ${suites.length ? `<p class="aide">Début d'un enchaînement de ${pluriel(suites.length + 1, 'note')}.</p>` : ''}
     <label class="champ"><span>Type</span><select name="type">${options}</select></label>
 
     <p class="titre-choix">Quand</p>
@@ -826,7 +827,7 @@ function fenetreNote(n, nouvelle = false) {
     </div>
 
     ${t?.echelle ? zone010('intensite', 'Intensité', n.intensite, t.echelle.bas, t.echelle.haut) : ''}
-    ${s.issue ? unChoix('issue', ISSUES, n.issue, 'Et alors ?') : ''}
+    ${issue ? `<p class="issue-envie ${issue.issue}">${issue.issue === 'cede' ? `Cédée : ${esc(nomType(issue.coping.type).toLowerCase())} à ${sansZero(heureDe(issue.coping.debut))}.` : issue.issue === 'traversee' ? 'Traversée : aucun coping de ce sujet ensuite, jusqu\'au soir.' : 'Pas de coping de ce sujet pour l\'instant. Si la journée finit ainsi, elle comptera comme traversée.'}</p>` : ''}
     ${s.aide ? unChoix('aide', AIDE, n.aide, 'Ça a aidé ?') : ''}
     ${t?.motifs ? unChoix('motif', t.motifs.map((m) => ({ id: m, nom: m })), n.motif, 'Pourquoi ?') : ''}
     ${s.quantite ? `<label class="champ"><span>Quantité <em>facultatif</em></span><input name="quantite" value="${esc(n.quantite)}" placeholder="2 cigarettes, 3 verres, 1 h de jeu…" autocomplete="off"></label>` : ''}
@@ -848,7 +849,6 @@ function fenetreNote(n, nouvelle = false) {
 
     <button class="btn btn-principal btn-large">Enregistrer</button>
     <div class="actions-sec actions-fiche">
-      <button type="button" class="lien" data-f="enchainer">${I.chaine} Enchaîner une note</button>
       <button type="button" class="lien danger" data-f="supprimer">Supprimer</button>
     </div>
   </form>`, (fd) => {
@@ -867,7 +867,7 @@ function fenetreNote(n, nouvelle = false) {
     S.modifierNote(n, {
       type: fd.get('type'), debut, fin, enCours: garderEnCours, precision: fd.get('precision'),
       intensite: num('intensite'), plaisir: num('plaisir'), maitrise: num('maitrise'),
-      issue: fd.get('issue') || null, aide: fd.get('aide') || null, motif: fd.get('motif') || null,
+      aide: fd.get('aide') || null, motif: fd.get('motif') || null,
       quantite: String(fd.get('quantite') || '').trim(), activite: String(fd.get('activite') || '').trim(),
       facettes: lus('facettes'), avecQui: lus('avecQui'), personnes: lus('personnes'), etiquettes: lus('etiquettes'),
       phrase: String(fd.get('phrase') || '').trim(),
@@ -927,18 +927,14 @@ function fenetreNote(n, nouvelle = false) {
   ajoutEnLigne('[data-f="personne"]', (v) => S.ajouterPersonne(majuscule(v)), 'per');
   ajoutEnLigne('[data-f="etiquette"]', (v) => S.ajouterEtiquette(v.toLowerCase()), 'etq');
   f.querySelector('[data-f="arreter"]')?.addEventListener('click', () => { S.arreter(n); fermer(); route(); toast(`Arrêté : ${texteDuree(dureeNote(n))}`); });
-  f.querySelector('[data-f="detacher"]')?.addEventListener('click', () => { S.detacher(n); f.querySelector('[data-chaine]').remove(); route(); toast("Détachée de l'enchaînement"); });
-  f.querySelector('[data-f="enchainer"]').addEventListener('click', () => vueNoter({ chaine: n.chaine || n.id }));
   f.querySelector('[data-f="supprimer"]').addEventListener('click', (ev) => {
     if (!confirmerDeux(ev.currentTarget, 'Confirmer ?')) return;
     const copie = { ...n };
-    const suites = S.suitesDe(n.id).map((x) => x.id);
     S.supprimerNote(n.id);
     fermer(); route();
     toast('Note supprimée', { libelle: 'Annuler', action: () => {
       S.remettreNote(copie);
-      for (const id of suites) { const x = S.note(id); if (x) x.chaine = copie.id; }
-      S.enregistrer(); route();
+      route();
     } });
   });
 }
@@ -992,7 +988,7 @@ function vueReglages() {
     </div>
     <div class="carte">
       <h3>Exemple pour tester</h3>
-      <p class="aide">Trois semaines de notes inventées (soirées enchaînées, activités, endormissement). Retirables d'un geste.</p>
+      <p class="aide">Trois semaines de notes inventées (soirées, activités, endormissement). Retirables d'un geste.</p>
       ${S.aDesExemples() ? '<button class="btn btn-large" data-action="retirer-exemple">Retirer l\'exemple</button>' : '<button class="btn btn-large" data-action="charger-exemple">Charger l\'exemple</button>'}
     </div>
     <div class="carte">
@@ -1001,7 +997,7 @@ function vueReglages() {
       <p class="aide">Besoin de parler à quelqu'un tout de suite : <b>3114</b>, numéro national de prévention du suicide, gratuit, 24 h/24.</p>
     </div>
     <div class="zone-danger"><button class="lien danger" data-action="tout-effacer">Tout effacer sur cet appareil</button></div>
-    <p class="pied">Logger v2.0.4 · les données restent sur cet appareil</p>`;
+    <p class="pied">Logger v2.0.5 · les données restent sur cet appareil</p>`;
   app.querySelector('[data-f="import"]').addEventListener('change', (ev) => importer(ev.target.files[0]));
 }
 
@@ -1097,8 +1093,9 @@ function vueGuide() {
   const sections = [
     ['Noter', [
       ['Noter en deux touchers', 'Le bouton + en bas → un type → l\'intensité. C\'est enregistré à l\'heure actuelle.'],
-      ['Après chaque note', 'Un panneau en bas propose les compléments utiles (cédé / traversée, a aidé ?, avec qui, étiquettes…), puis disparaît seul.'],
-      ['Enchaîner', 'Sous chaque carte, « Enchaîner une note » ajoute une note liée (stress → fatigue…). C\'est toi qui décides de ce qui va ensemble ; le + du bas crée une note séparée.'],
+      ['Après chaque note', 'Un panneau en bas propose les compléments utiles (intensité du coping, a aidé ?, avec qui, étiquettes…), puis disparaît seul.'],
+      ['Envie cédée ou traversée', 'Rien à dire sur le moment : une envie suivie d\'un coping du même sujet, le même jour, est cédée ; sans coping jusqu\'au soir, elle est traversée. Noter le coping après coup suffit à corriger.'],
+      ['Coping', 'Son intensité dit à quel point tu t\'es lâché, de « sans entrain » à « déchaînement ». Facultative, dans le panneau qui suit ou dans la fiche.'],
       ['Plages', 'Coping, activités, sommeil : « Je commence » puis « J\'arrête », ou « Depuis 30 min ». Toute note peut devenir une plage dans sa fiche.'],
       ['Endormissement', 'L\'heure où tu as essayé de dormir et le temps qu\'il t\'a fallu (estimation) : la zone en dégradé va de l\'un à l\'autre, 30 min au moins.'],
       ['Heure approximative', 'Dans la fiche : heure exacte, environ, ou un moment (la nuit, le matin…). Pas besoin de regarder l\'horloge.'],
@@ -1109,9 +1106,9 @@ function vueGuide() {
       ['Pastilles des jours', 'Faire glisser pour remonter le temps. Pastille pleine : aujourd\'hui ; cerclée : le jour affiché ; un point dessous : des notes ce jour-là. Toucher la date ouvre un calendrier.'],
       ['Les 24 points', 'Un point par heure, de 0 h à 24 h : gris = rien, puis de plus en plus coloré selon le nombre de notes.'],
       ['Planning', 'Toucher les points le déploie : une colonne par type (son icône en tête). Les colonnes ne changent jamais de place toutes seules : un nouveau type s\'ajoute à la fin, et un appui long sur une icône du haut permet de ranger sa colonne ailleurs. Les heures restent fixes à gauche, les colonnes défilent de côté. « Voir les 24 h » et la hauteur s\'y règlent.'],
-      ['Gestes du planning', 'Toucher une pastille : sa fiche. Appui long : la déplacer (l\'heure s\'affiche au-dessus du doigt). Appui long sur la petite poignée sous la pastille, puis tirer : la durée ; remonter jusqu\'à la pastille l\'annule. L\'heure de fin s\'écrit au bas de la barre quand elle est assez longue. Toucher un vide d\'une colonne : noter ce type à cette heure ; la dernière colonne (+) laisse choisir le type.'],
+      ['Gestes du planning', 'Toucher une pastille : sa fiche. Appui long : la déplacer (l\'heure s\'affiche au-dessus du doigt). Appui long sur la petite poignée sous la pastille, puis tirer : la durée ; remonter jusqu\'à la pastille l\'annule. L\'heure de fin s\'écrit au bas de la barre quand elle est assez longue. Toucher un vide d\'une colonne : une pastille vide apparaît à cette heure ; la toucher ouvre la saisie (ce type, ou au choix dans la dernière colonne +). Toucher ailleurs l\'efface, sans en créer une autre : une seconde chance en cas de toucher involontaire.'],
       ['Icônes', 'Chaque type a un emoji, modifiable dans Réglages → Types (suggestions ou n\'importe quel emoji du clavier).'],
-      ['Cartes', 'Les notes du jour dans l\'ordre, chaque carte avec son enchaînement.'],
+      ['Cartes', 'Les notes du jour dans l\'ordre.'],
       ['Journée', 'De 0 h à 24 h. Une plage qui passe minuit (endormissement) s\'affiche sur les deux jours.'],
     ]],
     ['Jours et pauses', [
@@ -1302,11 +1299,21 @@ function ouvrirFenetre(html, onSubmit, classe = '') {
   couche.innerHTML = `<div class="fenetre ${classe}" role="dialog" aria-modal="true">
     <div class="fenetre-haut"><div class="poignee-fenetre"></div><button class="fermer-fenetre" data-fermer aria-label="Fermer">${I.croix}</button></div>${html}</div>`;
   couche.hidden = false;
+  garde = Date.now() + 450;
   document.body.classList.add('fige');
   if (!etapeHistorique) { history.pushState({ fenetre: true }, ''); etapeHistorique = true; }
   couche.onclick = (ev) => { if (ev.target === couche || ev.target.closest('[data-fermer]')) fermer(); };
   const f = couche.querySelector('form');
   if (f && onSubmit) f.onsubmit = (ev) => { ev.preventDefault(); onSubmit(new FormData(f), f); };
+}
+
+// Une fenêtre ouverte à la fin d'un toucher apparaît sous le doigt : les événements de souris qui suivent ce
+// toucher (appui, clic) ne doivent pas activer le champ ou la liste qui se trouve là.
+let garde = 0;
+for (const type of ['mousedown', 'mouseup', 'click']) {
+  window.addEventListener(type, (ev) => {
+    if (Date.now() < garde && ev.target instanceof Node && couche.contains(ev.target)) { ev.preventDefault(); ev.stopPropagation(); }
+  }, true);
 }
 
 /** historique = false quand la fermeture accompagne une navigation (on ne recule pas). */
@@ -1375,7 +1382,6 @@ app.addEventListener('click', (ev) => {
     case 'aller': return aller(d.h);
     case 'date': return fenetreDate();
     case 'note': return fenetreNote(S.note(d.id));
-    case 'enchainer': return vueNoter({ chaine: d.id });
     case 'noter-ici': return vueNoter();
     case 'legende': legendeOuverte = !legendeOuverte; return vueJour();
     case 'planning': { const r = S.reglages(); r.planningOuvert = !r.planningOuvert; S.enregistrer(); return vueJour(); }

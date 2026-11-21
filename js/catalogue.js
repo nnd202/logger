@@ -15,13 +15,13 @@ export const FAMILLES = [
 export const famille = (id) => FAMILLES.find((f) => f.id === id);
 
 // Comportement de saisie par famille :
-// intensite : on demande 0–10 ; plage : on propose « depuis… / je commence » ; issue : cédé / traversée ;
+// intensite : 0–10 ; plage : on propose « depuis… / je commence » ; l'issue d'une envie (cédée / traversée) se déduit ;
 // aide : « a aidé ? » ; activite : nom libre, plaisir, maîtrise, facettes.
 export const SAISIE = {
   etat: { intensite: true },
   corps: { intensite: true },
-  envie: { intensite: true, issue: true },
-  coping: { plage: true, quantite: true },
+  envie: { intensite: true },
+  coping: { plage: true, quantite: true, intensite: true },
   activite: { plage: true, activite: true },
   declencheur: {},
   aide: { aide: true },
@@ -29,6 +29,8 @@ export const SAISIE = {
 };
 
 const ECHELLE = { min: 0, max: 10, bas: 'à peine', haut: 'très fort' };
+/** Coping : à quel point je me suis lâché. */
+export const ECHELLE_COPING = { min: 0, max: 10, bas: 'sans entrain', haut: 'déchaînement' };
 
 /** Icône (emoji) de chaque type de départ ; modifiable dans les Réglages. */
 export const ICONES = {
@@ -55,7 +57,7 @@ export const SUGGESTIONS = [
   ['Sommeil', '🌙 🛏️ 😴 💤 👁️ ⏰ 🌗'],
 ];
 
-const t = (famille, id, nom, extra = {}) => ({ id, famille, nom, visible: true, icone: ICONES[id] || ICONE_FAMILLE[famille], echelle: SAISIE[famille].intensite ? { ...ECHELLE } : null, ...extra });
+const t = (famille, id, nom, extra = {}) => ({ id, famille, nom, visible: true, icone: ICONES[id] || ICONE_FAMILLE[famille], echelle: famille === 'coping' ? { ...ECHELLE_COPING } : SAISIE[famille].intensite ? { ...ECHELLE } : null, ...extra });
 
 export function typesDeDepart() {
   return [
