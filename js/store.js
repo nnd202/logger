@@ -12,6 +12,9 @@ let coffre = lireCoffre();
 let cleCoffre = null;
 let etat = coffre ? vierge() : charger();
 let ecritures = Promise.resolve();
+// Une écriture refusée (stockage plein) ne doit jamais passer inaperçue.
+let alerte = () => {};
+export const surErreurEcriture = (f) => { alerte = f; };
 
 function lireCoffre() {
   try { const c = JSON.parse(localStorage.getItem(CLE_COFFRE)); return c?.format === 'logger-coffre' ? c : null; } catch { return null; }
@@ -64,7 +67,7 @@ function charger() {
 
 export function enregistrer() {
   if (!coffre) {
-    try { localStorage.setItem(CLE, JSON.stringify(etat)); } catch { /* plein ou bloqué */ }
+    try { localStorage.setItem(CLE, JSON.stringify(etat)); } catch { alerte(); }
     return;
   }
   if (!cleCoffre) return; // coffre fermé : rien à écrire
@@ -77,7 +80,7 @@ export function enregistrer() {
 
 // Les écritures chiffrées sont asynchrones : on les enchaîne pour que la dernière gagne toujours.
 function ecrirePlusTard(f) {
-  ecritures = ecritures.then(f).catch(() => { /* plein ou bloqué */ });
+  ecritures = ecritures.then(f).catch(() => alerte());
   return ecritures;
 }
 export const ecrituresFinies = () => ecritures;

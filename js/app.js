@@ -1416,6 +1416,7 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('hashchange', route);
 document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !couche.hidden) fermer(); });
 
+S.surErreurEcriture(() => toast("Enregistrement impossible : le stockage du téléphone est plein. Exporte tes données."));
 activerBulles();
 suivreZoneVisible();
 if (!verrouiller()) route();
