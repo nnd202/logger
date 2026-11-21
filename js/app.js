@@ -200,7 +200,6 @@ function vueJour() {
       </div>
       ${pastillesJours(d)}
     </header>
-    ${infosJour(d, carteNuit, carteBilan)}
     ${carteNuit ? `<div class="carte-moment matin">
       <div><b>☀️ Débrief de la nuit</b><small>Endormissement, réveils, comment c'était. Sans regarder l'heure.</small></div>
       <div class="cm-actions"><button class="btn btn-principal" data-action="debrief" data-d="${d}">Faire le débrief</button><button class="lien discret" data-action="fermer-carte" data-quoi="nuit" data-d="${d}">Pas aujourd'hui</button></div>
@@ -213,6 +212,7 @@ function vueJour() {
     ${encours.length ? `<div class="en-cours">${encours.map((n) => `<div class="carte-encours" style="--c:${couleurDe(n)}">
         <button class="ouvrir" data-action="note" data-id="${n.id}"><b><i class="pastille-mini"></i>${esc(nomType(n.type))}</b><small>en cours depuis ${sansZero(heureDe(n.debut))} · ${texteDuree(dureeNote(n))}</small></button>
         <button class="btn btn-stop" data-action="arreter" data-id="${n.id}">${I.stop} J'arrête</button></div>`).join('')}</div>` : ''}
+    ${infosJour(d)}
     <section class="carte-planning ${ouvert ? 'ouvert' : ''}">
       <button class="planning-tete" data-action="planning" aria-expanded="${ouvert}">
         ${miniFrise(d, affichees)}
@@ -627,28 +627,31 @@ function brancherPlanning() {
 
 // --- Rythme, débrief du matin, bilan du soir -----------------------------------------------------
 
-/** Petite ligne sous le bandeau : type du jour, nuit, bilan. Chaque élément s'ouvre d'un toucher. */
-function infosJour(d, carteNuit, carteBilan) {
+/** Encart au-dessus du planning : bilan de la nuit et de la journée à gauche, type de jour à droite. */
+function infosJour(d) {
   const tj = S.typeJour(d);
   const n = S.nuit(d);
   const nd = S.nuitDe(d);
   const b = S.bilan(d);
   const e = S.endormissementAvant(d);
-  const a = auj();
-  const morceaux = [`<button class="info-jour" data-action="type-jour" aria-label="Type de jour">${esc(tj.icone)} ${esc(tj.nom)}</button>`];
+  const pause = S.statutJour(d) === 'pause';
+  let nuitTxt = null;
   if (n || e) {
     const bouts = [nd?.sommeil && nd.debutReel && nd.finReelle ? `≈ ${texteDuree(nd.sommeil)}` : 'Nuit'];
     if (n?.reveils != null) bouts.push(n.reveils === 0 ? 'sans réveil' : `${n.reveils === 3 ? '3+' : n.reveils} réveil${n.reveils > 1 ? 's' : ''}`);
     if (n?.qualite != null) bouts.push(`${n.qualite}/10`);
-    morceaux.push(`<button class="info-jour nuit" data-action="debrief" data-d="${d}">🌙 ${bouts.join(' · ')}</button>`);
-  } else if (!carteNuit && S.statutJour(d) !== 'pause') {
-    morceaux.push(`<button class="info-jour vide" data-action="debrief" data-d="${d}">${I.plus} Nuit</button>`);
+    nuitTxt = `🌙 ${bouts.join(' · ')}`;
   }
-  if (b) morceaux.push(`<button class="info-jour bilan" data-action="bilan" data-d="${d}">Journée${b.note != null ? ` ${b.note}/10` : ' : bilan fait'}</button>`);
-  else if (!carteBilan && (d < a || new Date().getHours() >= 19) && S.statutJour(d) !== 'pause') {
-    morceaux.push(`<button class="info-jour vide" data-action="bilan" data-d="${d}">${I.plus} Bilan</button>`);
-  }
-  return `<div class="infos-jour">${morceaux.join('')}</div>`;
+  const ligne = (action, plein, vide) => (plein
+    ? `<button class="ij-ligne plein ${action}" data-action="${action}" data-d="${d}">${esc(plein)}</button>`
+    : pause ? '' : `<button class="ij-ligne" data-action="${action}" data-d="${d}">${I.plus} ${vide}</button>`);
+  return `<div class="infos-jour">
+    <div class="ij-gauche">
+      ${ligne('debrief', nuitTxt, 'Bilan de la nuit')}
+      ${ligne('bilan', b ? `☀️ Journée${b.note != null ? ` ${b.note}/10` : ' : bilan fait'}${b.phrase ? ` · ${b.phrase}` : ''}` : null, 'Bilan de la journée')}
+    </div>
+    <button class="ij-type" data-action="type-jour" aria-label="Type de jour : ${esc(tj.nom)}"><span>${esc(tj.icone)}</span><small>${esc(tj.nom)}</small></button>
+  </div>`;
 }
 
 /** Les faits du jour, sans rien à remplir (bilan du soir). */
@@ -1378,7 +1381,7 @@ function vueReglages() {
     </div>
     <div class="zone-danger"><button class="lien danger" data-action="tout-effacer">Tout effacer sur cet appareil</button></div>
     ${carteAide()}
-    <p class="pied">Logger v2.1 · les données restent sur cet appareil${S.stockage() === 'indexeddb' ? ` (IndexedDB${S.stockageProtege() ? ', protégées' : ''})` : ''}</p>`;
+    <p class="pied">Logger v2.1.1 · les données restent sur cet appareil${S.stockage() === 'indexeddb' ? ` (IndexedDB${S.stockageProtege() ? ', protégées' : ''})` : ''}</p>`;
   app.querySelector('[data-f="import"]').addEventListener('change', (ev) => importer(ev.target.files[0]));
 }
 
@@ -1493,9 +1496,9 @@ function vueGuide() {
       ['Journée', 'De 0 h à 24 h. Une plage qui passe minuit (endormissement) s\'affiche sur les deux jours.'],
     ]],
     ['Matin, soir et rythme', [
-      ['Débrief du matin', 'Jusqu\'à midi, une carte propose de noter la nuit : endormissement (s\'il n\'a pas été noté la veille), nombre de réveils sans regarder l\'heure, temps éveillé, réveil final, la nuit de 0 à 10. Tout est facultatif ; « Pas aujourd\'hui » la range. Plus tard ou pour un autre jour : « + Nuit » sous le bandeau.'],
-      ['Bilan du soir', 'À partir de 19 h, une carte propose le bilan : les faits du jour sans rien à remplir (envies, coping, activités, états les plus forts), puis la journée de 0 à 10 et une phrase. Le bilan d\'hier reste proposé le lendemain matin. Pour un autre jour : « + Bilan ».'],
-      ['Type de jour', 'Sous le bandeau : travail, télétravail, congé, week-end… D\'après ta semaine type ; un toucher pour changer ce jour-là. Réglages → Rythme et types de jour pour la semaine type et les heures visées.'],
+      ['Débrief du matin', 'Jusqu\'à midi, une carte propose de noter la nuit : endormissement (s\'il n\'a pas été noté la veille), nombre de réveils sans regarder l\'heure, temps éveillé, réveil final, la nuit de 0 à 10. Tout est facultatif ; « Pas aujourd\'hui » la range. Plus tard ou pour un autre jour : « Bilan de la nuit » dans l\'encart au-dessus du planning.'],
+      ['Bilan du soir', 'À partir de 19 h, une carte propose le bilan : les faits du jour sans rien à remplir (envies, coping, activités, états les plus forts), puis la journée de 0 à 10 et une phrase. Le bilan d\'hier reste proposé le lendemain matin. À tout moment : « Bilan de la journée » dans l\'encart au-dessus du planning.'],
+      ['Type de jour', 'À droite de l\'encart au-dessus du planning : travail, télétravail, congé, week-end… D\'après ta semaine type ; un toucher pour changer ce jour-là. Réglages → Rythme et types de jour pour la semaine type et les heures visées.'],
       ['La nuit dans le planning', 'Un fond bleuté discret montre la nuit, d\'après l\'endormissement et le réveil du débrief. Sans données, et si tu as réglé des heures visées, la nuit prévue s\'affiche hachurée.'],
     ]],
     ['Questionnaires', [
@@ -1775,7 +1778,7 @@ app.addEventListener('click', (ev) => {
     case 'date': return fenetreDate();
     case 'debrief': return fenetreDebrief(d.d || jourAffiche);
     case 'bilan': return fenetreBilan(d.d || jourAffiche);
-    case 'fermer-carte': S.fermerCarte(d.d, d.quoi); vueJour(); return toast(d.quoi === 'nuit' ? 'Débrief rangé pour aujourd\'hui (toujours accessible : + Nuit)' : 'Bilan rangé pour ce soir (toujours accessible : + Bilan)');
+    case 'fermer-carte': S.fermerCarte(d.d, d.quoi); vueJour(); return toast(d.quoi === 'nuit' ? 'Débrief rangé pour aujourd\'hui (toujours accessible : Bilan de la nuit)' : 'Bilan rangé pour ce soir (toujours accessible : Bilan de la journée)');
     case 'type-jour': return fenetreTypeJour(jourAffiche);
     case 'passer': return passerQuestionnaire(d.q);
     case 'note': return fenetreNote(S.note(d.id));
