@@ -588,3 +588,15 @@ svg.pl-liens { position: absolute; top: 0; left: 0; height: 100% !important; poi
 .grille-emojis button { height: 42px; border-radius: 10px; font-size: 22px; line-height: 1; }
 .grille-emojis button.choisi, .grille-emojis button:active { background: var(--pale); }
 .choix-icone { width: 34px; height: 34px; flex: none; }
+
+/* Planning : heure au-dessus des pastilles, états de geste distincts, poignée plus facile à saisir */
+.pln-heure { position: absolute; left: 50%; top: -33px; transform: translateX(-50%); z-index: 3; font-size: 10px; font-weight: 600; line-height: 1; color: color-mix(in srgb, var(--c) 70%, black); background: #fff; border: 1px solid color-mix(in srgb, var(--c) 35%, white); border-radius: 99px; padding: 2px 5px; white-space: nowrap; font-variant-numeric: tabular-nums; pointer-events: none; }
+.pln-poignee { width: 22px; height: 7px; margin-top: 5px; z-index: 4; background: color-mix(in srgb, var(--c) 55%, white); box-shadow: 0 0 0 1.5px #fff; }
+.pln-poignee::after { inset: -4px -16px -18px -16px; }
+.pln.deplace .pln-pastille { border-style: dashed; }
+.pln.deplace .pln-barre { opacity: .45; }
+.pln.etire .pln-barre { background: color-mix(in srgb, var(--c) 18%, white); border: 2px dashed var(--c); border-top: 0; }
+.pln.etire .pln-poignee { background: var(--c); transform: translateX(-50%) scale(1.25); }
+.bulle-heure small { display: block; font-size: 11.5px; font-weight: 500; opacity: .8; margin-top: 2px; }
+.actions-fiche { flex-wrap: nowrap; justify-content: space-between; }
+.actions-fiche .lien { white-space: nowrap; }

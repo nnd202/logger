@@ -162,8 +162,14 @@ function notesAffichees(d) {
   return [...S.plagesTraversantes(d).filter((n) => !jour.includes(n)), ...jour];
 }
 
+let dernierJourAffiche = null;
+
 function vueJour() {
   const d = jourAffiche;
+  // Même jour réaffiché (durée, déplacement, hauteur, note ajoutée) : on garde la position, verticale et latérale.
+  const memo = d === dernierJourAffiche && app.querySelector('.bandeau-jour')
+    ? { y: window.scrollY, x: app.querySelector('.pl-defile')?.scrollLeft || 0 } : null;
+  dernierJourAffiche = d;
   const a = auj();
   const notes = S.notesDuJour(d);
   const affichees = notesAffichees(d);
@@ -207,7 +213,12 @@ function vueJour() {
       </div>`}
     <div class="pied-jour"><button class="lien" data-action="aller" data-h="#/guide">${I.guide} Tout ce que fait Logger</button></div>`;
   // Les pastilles centrent le jour affiché.
-  if (ouvert) brancherPlanning(affichees);
+  if (ouvert) brancherPlanning();
+  if (memo) {
+    const defile = app.querySelector('.pl-defile');
+    if (defile) defile.scrollLeft = memo.x;
+    window.scrollTo(0, memo.y);
+  }
   const bande = app.querySelector('[data-jours]');
   const vu = bande.querySelector('.vu');
   const centrer = () => { bande.scrollLeft = vu.offsetLeft - bande.clientWidth / 2 + vu.offsetWidth / 2; };
@@ -274,10 +285,10 @@ function planning(d, notes) {
   const OFF = 18; // marge haute et basse : les pastilles du bord ne sont pas coupées
   const y = (m) => (h(m) - h0) * px + OFF;
   const hauteur = (h1 - h0) * px + 2 * OFF;
-  const ordreFam = FAMILLES.map((f) => f.id);
+  // Colonnes dans l'ordre chronologique : le type noté le plus tôt dans la journée à gauche.
+  // La lecture de gauche à droite suit ainsi le fil de la journée.
   const premier = (tid) => Math.min(...notes.filter((n) => n.type === tid).map(debutM));
-  const types = [...new Set(notes.map((n) => n.type))]
-    .sort((a, b) => ordreFam.indexOf(S.type(a)?.famille) - ordreFam.indexOf(S.type(b)?.famille) || premier(a) - premier(b));
+  const types = [...new Set(notes.map((n) => n.type))].sort((a, b) => premier(a) - premier(b));
   const heures = [];
   for (let k = h0; k <= h1; k++) heures.push(`<span class="plh" style="top:${(k - h0) * px + OFF}px">${k} h</span>`);
   const colonnes = types.map((tid) => {
@@ -289,8 +300,9 @@ function planning(d, notes) {
       const veille = minutes(n.debut) < zero;
       return `<div class="pln ${t?.famille === 'envie' ? 'anneau' : ''} ${n.issue === 'cede' ? 'cede' : ''} ${n.precision !== 'exacte' ? 'approx' : ''} ${veille ? 'veille' : ''}" data-id="${n.id}" style="top:${y(a)}px">
         ${barre ? `<div class="pln-barre ${t?.endormissement ? 'degrade' : ''} ${n.enCours ? 'encours' : ''}" style="height:${Math.max(22, barre)}px"></div>` : ''}
+        <span class="pln-heure">${veille ? 'veille' : `${n.precision === 'vers' ? '~' : ''}${sansZero(heureDe(n.debut))}`}</span>
         <button class="pln-pastille" data-pastille aria-label="${esc(`${nomType(n.type)} · ${quand(n)}${n.intensite != null ? ` · ${n.intensite}` : ''}`)}">${esc(t?.icone || '•')}${n.intensite != null ? `<small>${n.intensite}</small>` : ''}</button>
-        ${veille ? '' : `<span class="pln-poignee" data-poignee style="top:${Math.max(22, barre)}px" aria-label="Étirer la durée"></span>`}
+        <span class="pln-poignee" data-poignee style="top:${Math.max(24, barre)}px" aria-label="Étirer la durée"></span>
       </div>`;
     }).join('');
     return `<div class="plc" data-type="${tid}" style="--c:${f?.couleur}">${marques}</div>`;
@@ -306,11 +318,10 @@ function planning(d, notes) {
       <div class="pl-gouttiere"><div class="pl-tete"></div><div class="pl-heures" style="height:${hauteur}px">${heures.join('')}${nowGouttiere}</div></div>
       <div class="pl-defile">
         <div class="pl-cols" style="--n:${types.length + 1}">
-          <div class="pl-tetes">${types.map((tid) => `<span class="pl-entete" style="--c:${famille(S.type(tid)?.famille)?.couleur}" title="${esc(nomType(tid))}">${esc(S.type(tid)?.icone || '•')}</span>`).join('')}
+          <div class="pl-tetes">${types.map((tid) => `<button class="pl-entete" style="--c:${famille(S.type(tid)?.famille)?.couleur}" data-entete="${tid}" aria-label="${esc(nomType(tid))}">${esc(S.type(tid)?.icone || '•')}</button>`).join('')}
             <button class="pl-entete ajout" data-action="noter-ici" aria-label="Noter un autre type">${I.plus}</button></div>
           <div class="pl-corps" style="height:${hauteur}px;background-size:100% ${px}px;background-position:0 ${OFF}px">
             ${colonnes}<div class="plc plc-ajout" data-type=""></div>
-            <svg class="pl-liens" aria-hidden="true"></svg>
             ${ligneNow}
           </div>
         </div>
@@ -324,57 +335,30 @@ function planning(d, notes) {
           <li><span class="pln-demo anneau"></span>Anneau seul : une envie (anneau épais : cédée).</li>
           <li><span class="pln-demo approx"></span>Pointillés : heure approximative.</li>
           <li><span class="pln-demo barre"></span>Barre : la durée.</li>
-          <li><span class="lien-demo"></span>Courbe pointillée : un enchaînement.</li>
-          <li>Toucher une pastille : sa fiche. Appui long : la déplacer. Tirer la petite poignée : la durée (remonter jusqu'à la pastille l'annule). Toucher un vide : noter à cette heure.</li>
+          <li>Toucher une icône du haut : son nom et sa famille. Toucher une pastille : sa fiche. Appui long sur la pastille : la déplacer (son contour passe en pointillés). Tirer la poignée sous la pastille : la durée (la barre passe en pointillés ; remonter jusqu'à la pastille l'annule). Toucher un vide : noter à cette heure. Les colonnes suivent l'ordre de la journée : le type noté le plus tôt à gauche.</li>
         </ul>` : ''}
     </div>`;
-}
-
-/** Courbes entre notes enchaînées, tracées d'après la position réelle des pastilles. */
-function tracerLiens(corps, notes) {
-  const svg = corps.querySelector('.pl-liens');
-  if (!svg) return;
-  const r = corps.getBoundingClientRect();
-  svg.setAttribute('viewBox', `0 0 ${corps.scrollWidth} ${r.height}`);
-  svg.style.width = `${corps.scrollWidth}px`;
-  const centre = (id) => {
-    const p = corps.querySelector(`.pln[data-id="${id}"] .pln-pastille`);
-    if (!p) return null;
-    const b = p.getBoundingClientRect();
-    return { x: b.left - r.left + b.width / 2, y: b.top - r.top + b.height / 2 };
-  };
-  const chemins = [];
-  const tetes = new Set(notes.map((n) => n.chaine || n.id));
-  for (const id of tetes) {
-    const tete = S.note(id);
-    if (!tete) continue;
-    const suite = [tete, ...S.suitesDe(id)].filter((n) => notes.includes(n));
-    for (let i = 1; i < suite.length; i++) {
-      const a = centre(suite[i - 1].id), b = centre(suite[i].id);
-      if (!a || !b || Math.abs(a.x - b.x) < 2) continue;
-      const m = (a.y + b.y) / 2;
-      chemins.push(`<path d="M${a.x} ${a.y} C${a.x} ${m}, ${b.x} ${m}, ${b.x} ${b.y}"/>`);
-    }
-  }
-  svg.innerHTML = chemins.join('');
 }
 
 let legendeOuverte = false;
 
 /** Gestes du planning : toucher, appui long pour déplacer, poignée pour la durée, toucher un vide. */
-function brancherPlanning(notes) {
+function brancherPlanning() {
   const pl = app.querySelector('.pl');
   if (!pl) return;
   const corps = pl.querySelector('.pl-corps');
   const zero = Number(pl.dataset.zero), h0 = Number(pl.dataset.h0), h1 = Number(pl.dataset.h1), px = Number(pl.dataset.px), off = Number(pl.dataset.off);
-  const tempsDe = (clientY) => {
+  // Jamais au-delà de maintenant : on ne déplace ni n'étire une note dans le futur.
+  const limite = pl.dataset.jour === auj() ? Math.min(zero + h1 * 60, maintenantMin()) : zero + h1 * 60;
+  const tempsDe = (clientY, max = limite) => {
     const top = corps.getBoundingClientRect().top + off;
     const m = zero + h0 * 60 + ((clientY - top) / px) * 60;
-    return Math.max(zero + h0 * 60, Math.min(zero + h1 * 60, Math.round(m / 5) * 5));
+    return Math.max(zero + h0 * 60, Math.min(max, Math.round(m / 5) * 5));
   };
   const yDe = (m) => ((m - zero) / 60 - h0) * px + off;
   const bulle = document.getElementById('bulle-heure');
   const montrer = (ev, texte) => {
+    clearTimeout(bulle.minuteur);
     bulle.textContent = texte;
     bulle.hidden = false;
     const l = Math.min(window.innerWidth - 150, Math.max(8, ev.clientX - 150));
@@ -382,7 +366,6 @@ function brancherPlanning(notes) {
     bulle.style.top = `${Math.max(8, ev.clientY - 74)}px`;
   };
   const cacher = () => { bulle.hidden = true; };
-  requestAnimationFrame(() => tracerLiens(corps, notes));
   let g = null;
   corps.addEventListener('pointerdown', (ev) => {
     const el = ev.target.closest('.pln');
@@ -391,8 +374,9 @@ function brancherPlanning(notes) {
     if (ev.target.closest('[data-poignee]')) {
       ev.preventDefault();
       ev.target.setPointerCapture(ev.pointerId);
-      g = { sorte: 'etirer', el, n, debut: minutes(n.debut) };
-      el.classList.add('saisi');
+      g = { sorte: 'etirer', el, n, debut: minutes(n.debut), debutAff: Math.max(minutes(n.debut), zero + h0 * 60) };
+      el.classList.add('saisi', 'etire');
+      navigator.vibrate?.(8);
       return;
     }
     if (!ev.target.closest('[data-pastille]')) return;
@@ -402,7 +386,7 @@ function brancherPlanning(notes) {
     if (!veille) g.minuteur = setTimeout(() => {
       if (!g || g.sorte !== 'attente') return;
       g.sorte = 'deplacer';
-      el.classList.add('saisi');
+      el.classList.add('saisi', 'deplace');
       navigator.vibrate?.(15);
       montrer(ev, `${sansZero(heureDe(n.debut))} · glisse pour déplacer`);
     }, 400);
@@ -414,7 +398,8 @@ function brancherPlanning(notes) {
       return;
     }
     if (g.sorte === 'deplacer') {
-      const m = tempsDe(ev.clientY);
+      const duree = g.n.fin ? minutes(g.n.fin) - g.debut : 0;
+      const m = tempsDe(ev.clientY, limite - duree);
       g.m = m;
       g.el.style.top = `${yDe(m)}px`;
       montrer(ev, `${sansZero(heureDe(horodatage(new Date(m * 60000))))}`);
@@ -422,11 +407,11 @@ function brancherPlanning(notes) {
       const m = tempsDe(ev.clientY);
       g.m = m;
       const duree = m - g.debut;
-      const barreH = duree > 0 ? Math.max(22, yDe(m) - yDe(g.debut)) : 0;
+      const barreH = duree > 0 ? Math.max(22, yDe(m) - yDe(g.debutAff)) : 0;
       let barre = g.el.querySelector('.pln-barre');
       if (!barre && barreH) { barre = document.createElement('div'); barre.className = 'pln-barre'; g.el.prepend(barre); }
       if (barre) { barre.style.height = `${barreH}px`; barre.hidden = !barreH; }
-      g.el.querySelector('.pln-poignee').style.top = `${Math.max(22, barreH)}px`;
+      g.el.querySelector('.pln-poignee').style.top = `${Math.max(24, barreH)}px`;
       montrer(ev, duree > 0 ? `jusqu'à ${sansZero(heureDe(horodatage(new Date(m * 60000))))} · ${texteDuree(duree)}` : 'Sans durée');
     }
   });
@@ -457,6 +442,19 @@ function brancherPlanning(notes) {
   };
   corps.addEventListener('pointerup', (ev) => finir(ev));
   corps.addEventListener('pointercancel', (ev) => finir(ev, true));
+  // Toucher une icône du haut : son nom et sa famille, dans une bulle sous l'icône.
+  pl.querySelector('.pl-tetes').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-entete]');
+    if (!b) return;
+    const ty = S.type(b.dataset.entete);
+    const r = b.getBoundingClientRect();
+    bulle.innerHTML = `${esc(ty.icone)} ${esc(ty.nom)}<small>${esc(famille(ty.famille).un)}</small>`;
+    bulle.hidden = false;
+    bulle.style.left = `${Math.min(window.innerWidth - bulle.offsetWidth - 8, Math.max(8, r.left + r.width / 2 - bulle.offsetWidth / 2))}px`;
+    bulle.style.top = `${r.bottom + 8}px`;
+    clearTimeout(bulle.minuteur);
+    bulle.minuteur = setTimeout(cacher, 2500);
+  });
   // Toucher un vide d'une colonne : noter à cette heure (ce type, ou au choix dans la dernière colonne).
   corps.addEventListener('click', (ev) => {
     const col = ev.target.classList.contains('plc') ? ev.target : null;
@@ -743,7 +741,7 @@ function fenetreNote(n, nouvelle = false) {
     <label class="champ"><span>Une phrase <em>facultatif</em></span><textarea name="phrase" rows="2" placeholder="Ce qui s'est passé, le contexte…">${esc(n.phrase)}</textarea></label>
 
     <button class="btn btn-principal btn-large">Enregistrer</button>
-    <div class="actions-sec">
+    <div class="actions-sec actions-fiche">
       <button type="button" class="lien" data-f="enchainer">${I.chaine} Enchaîner une note</button>
       <button type="button" class="lien danger" data-f="supprimer">Supprimer</button>
     </div>
@@ -826,7 +824,7 @@ function fenetreNote(n, nouvelle = false) {
   f.querySelector('[data-f="detacher"]')?.addEventListener('click', () => { S.detacher(n); f.querySelector('[data-chaine]').remove(); route(); toast("Détachée de l'enchaînement"); });
   f.querySelector('[data-f="enchainer"]').addEventListener('click', () => vueNoter({ chaine: n.chaine || n.id }));
   f.querySelector('[data-f="supprimer"]').addEventListener('click', (ev) => {
-    if (!confirmerDeux(ev.currentTarget)) return;
+    if (!confirmerDeux(ev.currentTarget, 'Confirmer ?')) return;
     const copie = { ...n };
     const suites = S.suitesDe(n.id).map((x) => x.id);
     S.supprimerNote(n.id);
@@ -897,7 +895,7 @@ function vueReglages() {
       <p class="aide">Besoin de parler à quelqu'un tout de suite : <b>3114</b>, numéro national de prévention du suicide, gratuit, 24 h/24.</p>
     </div>
     <div class="zone-danger"><button class="lien danger" data-action="tout-effacer">Tout effacer sur cet appareil</button></div>
-    <p class="pied">Logger v2.0.2 · les données restent sur cet appareil</p>`;
+    <p class="pied">Logger v2.0.3 · les données restent sur cet appareil</p>`;
   app.querySelector('[data-f="import"]').addEventListener('change', (ev) => importer(ev.target.files[0]));
 }
 
@@ -1004,7 +1002,7 @@ function vueGuide() {
     ['Lire sa journée', [
       ['Pastilles des jours', 'Faire glisser pour remonter le temps. Pastille pleine : aujourd\'hui ; cerclée : le jour affiché ; un point dessous : des notes ce jour-là. Toucher la date ouvre un calendrier.'],
       ['Les 24 points', 'Un point par heure, de 0 h à 24 h : gris = rien, puis de plus en plus coloré selon le nombre de notes.'],
-      ['Planning', 'Toucher les points le déploie : une colonne par type (son icône en tête), les heures fixes à gauche, les colonnes défilent de côté. Une courbe pointillée relie les notes d\'un enchaînement. « Voir les 24 h » et la hauteur s\'y règlent.'],
+      ['Planning', 'Toucher les points le déploie : une colonne par type (son icône en tête), dans l\'ordre de la journée (le type noté le plus tôt à gauche). Les heures restent fixes à gauche, les colonnes défilent de côté. « Voir les 24 h » et la hauteur s\'y règlent.'],
       ['Gestes du planning', 'Toucher une pastille : sa fiche. Appui long : la déplacer (l\'heure s\'affiche au-dessus du doigt). Tirer la petite poignée sous la pastille : la durée ; remonter jusqu\'à la pastille l\'annule. Toucher un vide d\'une colonne : noter ce type à cette heure ; la dernière colonne (+) laisse choisir le type.'],
       ['Icônes', 'Chaque type a un emoji, modifiable dans Réglages → Types (suggestions ou n\'importe quel emoji du clavier).'],
       ['Cartes', 'Les notes du jour dans l\'ordre, chaque carte avec son enchaînement.'],
@@ -1213,11 +1211,11 @@ function toast(t, bouton = null) {
   toastMinuteur = setTimeout(() => { toastEl.hidden = true; }, bouton ? 5000 : 2600);
 }
 
-function confirmerDeux(btn) {
+function confirmerDeux(btn, texte = 'Toucher encore pour confirmer') {
   if (btn.dataset.confirme) return true;
   btn.dataset.confirme = '1';
   const t = btn.textContent;
-  btn.textContent = 'Toucher encore pour confirmer';
+  btn.textContent = texte;
   setTimeout(() => { delete btn.dataset.confirme; btn.textContent = t; }, 3000);
   return false;
 }
