@@ -1,11 +1,21 @@
 // État de Logger v2 : un seul journal de notes, gardé en JSON dans le stockage du navigateur.
 import { uid, horodatage, jourDe, minutes } from './calc.js';
 import { typesDeDepart, etiquettesDeDepart, DEBUT_JOURNEE, ICONES, ICONE_FAMILLE } from './catalogue.js';
+import * as C from './crypto.js';
 
-const CLE = 'logger2-etat';
+const CLE = 'logger2-etat'; // état en clair (tant qu'aucun code n'existe)
+const CLE_COFFRE = 'logger2-coffre'; // état chiffré avec le code
 const CLE_COPIE = 'logger2-copie';
 
-let etat = charger();
+// Coffre : { format, sel, iterations, longueur, iv, donnees }. Tant qu'il n'est pas ouvert, l'état est vide.
+let coffre = lireCoffre();
+let cleCoffre = null;
+let etat = coffre ? vierge() : charger();
+let ecritures = Promise.resolve();
+
+function lireCoffre() {
+  try { const c = JSON.parse(localStorage.getItem(CLE_COFFRE)); return c?.format === 'logger-coffre' ? c : null; } catch { return null; }
+}
 
 export function vierge() {
   return {
@@ -17,6 +27,7 @@ export function vierge() {
     etiquettes: etiquettesDeDepart(),
     personnes: [], // [{ id, nom }]
     reglages: { echelleHeure: 48, planningOuvert: false },
+    colonnes: {}, // { 'AAAA-MM-JJ': [id de type, …] } : ordre des colonnes du planning, fixé par l'utilisateur
   };
 }
 
@@ -24,6 +35,7 @@ function normaliser(e) {
   const v = vierge();
   const r = { ...v, ...(e || {}) };
   r.reglages = { ...v.reglages, ...(e?.reglages || {}) };
+  if (!r.colonnes || typeof r.colonnes !== 'object') r.colonnes = {};
   // Types ajoutés au catalogue après coup : on les complète sans toucher aux réglages existants.
   const ids = new Set(r.types.map((t) => t.id));
   for (const t of v.types) if (!ids.has(t.id)) r.types.push(t);
@@ -49,7 +61,72 @@ function charger() {
 }
 
 export function enregistrer() {
-  try { localStorage.setItem(CLE, JSON.stringify(etat)); } catch { /* plein ou bloqué */ }
+  if (!coffre) {
+    try { localStorage.setItem(CLE, JSON.stringify(etat)); } catch { /* plein ou bloqué */ }
+    return;
+  }
+  if (!cleCoffre) return; // coffre fermé : rien à écrire
+  const instantane = JSON.stringify(etat);
+  ecrirePlusTard(async () => {
+    const s = await C.sceller(cleCoffre, instantane);
+    localStorage.setItem(CLE_COFFRE, JSON.stringify({ ...coffre, ...s }));
+  });
+}
+
+// Les écritures chiffrées sont asynchrones : on les enchaîne pour que la dernière gagne toujours.
+function ecrirePlusTard(f) {
+  ecritures = ecritures.then(f).catch(() => { /* plein ou bloqué */ });
+  return ecritures;
+}
+export const ecrituresFinies = () => ecritures;
+
+// --- Coffre (données chiffrées avec le code) -------------------------------------------------------
+
+export const estChiffre = () => !!coffre;
+export const estOuvert = () => !coffre || !!cleCoffre;
+export const longueurCoffre = () => coffre?.longueur || 6;
+
+/** Ouvre le coffre avec le code : charge l'état. Renvoie false si le code ne correspond pas. */
+export async function ouvrir(code) {
+  if (!coffre) return true;
+  try {
+    const k = await C.deriver(code, coffre.sel, coffre.iterations);
+    const e = await C.desceller(k, coffre);
+    etat = normaliser(e);
+    cleCoffre = k;
+    return true;
+  } catch { return false; }
+}
+
+/** Vérifie le code sans toucher à l'état en mémoire (verrouillage après une absence). */
+export async function verifierCode(code) {
+  if (!coffre) return false;
+  try { await C.desceller(await C.deriver(code, coffre.sel, coffre.iterations), coffre); return true; } catch { return false; }
+}
+
+/** Chiffre les données (et la copie de secours) avec ce code ; sert aussi à changer de code. */
+export async function chiffrerAvec(code, longueur = 6) {
+  await ecritures;
+  const copie = await lireCopie();
+  const sel = C.nouveauSel();
+  const k = await C.deriver(code, sel);
+  coffre = { format: 'logger-coffre', version: 1, kdf: 'PBKDF2-SHA-256', iterations: C.ITERATIONS, sel, longueur };
+  cleCoffre = k;
+  const s = await C.sceller(k, etat);
+  localStorage.setItem(CLE_COFFRE, JSON.stringify({ ...coffre, ...s }));
+  localStorage.removeItem(CLE);
+  if (copie) await ecrireCopie(copie);
+}
+
+/** Retire le chiffrement : les données repassent en clair sur l'appareil. */
+export async function dechiffrerTout() {
+  await ecritures;
+  const copie = await lireCopie();
+  coffre = null;
+  cleCoffre = null;
+  localStorage.removeItem(CLE_COFFRE);
+  enregistrer();
+  if (copie) await ecrireCopie(copie);
 }
 
 export const get = () => etat;
@@ -228,21 +305,42 @@ export function noterExport(date) {
   enregistrer();
 }
 
+// Copie de secours : { le, etat } en clair, ou { le, iv, donnees } chiffrée avec la clé du coffre.
+function ecrireCopie({ le, etat: e }) {
+  const texte = typeof e === 'string' ? e : JSON.stringify(e);
+  return ecrirePlusTard(async () => {
+    const corps = coffre && cleCoffre ? await C.sceller(cleCoffre, texte) : { etat: JSON.parse(texte) };
+    localStorage.setItem(CLE_COPIE, JSON.stringify({ le, ...corps }));
+  });
+}
+
+async function lireCopie() {
+  let c;
+  try { c = JSON.parse(localStorage.getItem(CLE_COPIE)); } catch { return null; }
+  if (!c) return null;
+  if (c.etat) return c;
+  if (!cleCoffre) return null;
+  try { return { le: c.le, etat: await C.desceller(cleCoffre, c) }; } catch { return null; }
+}
+
 function copieDeSecours() {
-  try { localStorage.setItem(CLE_COPIE, JSON.stringify({ le: Date.now(), etat })); } catch { /* plein */ }
+  ecrireCopie({ le: Date.now(), etat: JSON.stringify(etat) });
 }
 
 export function copieDisponible() {
   try { return JSON.parse(localStorage.getItem(CLE_COPIE))?.le || null; } catch { return null; }
 }
 
-export function restaurerCopie() {
-  const c = JSON.parse(localStorage.getItem(CLE_COPIE));
+export async function restaurerCopie() {
+  await ecritures;
+  const c = await lireCopie();
+  if (!c) return false;
   const code = etat.reglages.code;
   etat = normaliser(c.etat);
   if (code) etat.reglages.code = code; else delete etat.reglages.code;
   localStorage.removeItem(CLE_COPIE);
   enregistrer();
+  return true;
 }
 
 /** mode : 'remplacer' (tout) ou 'fusionner' (ajoute ce qui manque, par identifiant). */
@@ -259,6 +357,7 @@ export function importer(d, mode) {
     };
     for (const cle of ['types', 'notes', 'pauses', 'etiquettes', 'personnes']) ajoute(cle);
     etat.jours = { ...(d.jours || {}), ...etat.jours };
+    etat.colonnes = { ...(d.colonnes || {}), ...etat.colonnes };
   }
   if (code) etat.reglages.code = code; else delete etat.reglages.code;
   enregistrer();
@@ -271,8 +370,37 @@ export function toutEffacer() {
   enregistrer();
 }
 
+/** Code oublié : tout est effacé sur l'appareil, coffre et copie compris. */
 export function effacerAvecCode() {
+  coffre = null;
+  cleCoffre = null;
   etat = vierge();
+  for (const k of [CLE_COFFRE, CLE_COPIE]) localStorage.removeItem(k);
+  enregistrer();
+}
+
+// --- Ordre des colonnes du planning ----------------------------------------------------------------
+
+/**
+ * Ordre des colonnes d'un jour : celui que l'utilisateur a fixé. Un type qui apparaît s'ajoute à la fin
+ * (à la première vue d'un jour, les types sont rangés par heure de leur première note) ; un type qui n'a
+ * plus de note ce jour-là sort de la liste. Rien ne bouge tout seul.
+ */
+export function ordreColonnes(date, notes) {
+  const premier = new Map();
+  for (const n of [...notes].sort(parDebut)) if (!premier.has(n.type)) premier.set(n.type, n.debut);
+  const avant = etat.colonnes[date] || [];
+  const garde = avant.filter((t) => premier.has(t));
+  const ordre = [...garde, ...[...premier.keys()].filter((t) => !garde.includes(t))];
+  if (ordre.join() !== avant.join()) {
+    if (ordre.length) etat.colonnes[date] = ordre; else delete etat.colonnes[date];
+    enregistrer();
+  }
+  return ordre;
+}
+
+export function ordonnerColonnes(date, ordre) {
+  etat.colonnes[date] = ordre;
   enregistrer();
 }
 

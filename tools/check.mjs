@@ -88,7 +88,7 @@ S.importer(relu, 'remplacer');
 verifier('import remplacer', S.get().notes.length === avant && S.reglages().code?.sel === 'x');
 S.importer(relu, 'fusionner');
 verifier('import fusionner : pas de doublon', S.get().notes.length === avant);
-S.restaurerCopie();
+await S.restaurerCopie();
 verifier('annuler import', S.get().notes.length === avant);
 S.retirerExemples();
 verifier('exemple retiré', !S.aDesExemples());
@@ -97,6 +97,40 @@ verifier('exemple retiré', !S.aDesExemples());
 S._remplacer({ version: 2, types: [], notes: [{ id: 'x', type: 'agitation', debut: '2026-11-20T21:00', bloc: 'B' }, { id: 'y', type: 'fatigue', debut: '2026-11-20T21:30', bloc: 'B' }], blocs: [{ id: 'B', nom: 'Soirée' }] });
 verifier('icône ajoutée aux anciens types', S.type('agitation')?.icone === '🌀');
 verifier('migration des blocs', S.note('y').chaine === 'x' && S.note('x').chaine === null && !('blocs' in S.get()));
+
+// 8. Ordre des colonnes : fixé, un nouveau type s'ajoute à la fin, rien ne bouge seul.
+S._remplacer({ version: 2, notes: [] });
+const nj = (id, type, h) => ({ id, type, debut: `2026-11-21T${h}`, chaine: null });
+let ns = [nj('a', 'travail', '09:00'), nj('b', 'fatigue', '14:00')];
+verifier('colonnes : première vue par heure', S.ordreColonnes('2026-11-21', ns).join() === 'travail,fatigue');
+ns.push(nj('c', 'stress', '07:00'));
+verifier('colonnes : nouveau type à la fin, même plus tôt', S.ordreColonnes('2026-11-21', ns).join() === 'travail,fatigue,stress');
+S.ordonnerColonnes('2026-11-21', ['stress', 'travail', 'fatigue']);
+verifier('colonnes : ordre choisi gardé', S.ordreColonnes('2026-11-21', ns).join() === 'stress,travail,fatigue');
+verifier('colonnes : type sans note retiré', S.ordreColonnes('2026-11-21', ns.filter((n) => n.type !== 'travail')).join() === 'stress,fatigue');
+
+// 9. Coffre : données de l'appareil chiffrées avec le code.
+S._remplacer({ version: 2, notes: [{ id: 'z', type: 'fatigue', debut: '2026-11-21T10:00', phrase: 'secret-du-test' }] });
+S.enregistrer();
+await S.chiffrerAvec('258013');
+await S.ecrituresFinies();
+const brutCoffre = memoire.get('logger2-coffre') || '';
+verifier('coffre : écrit et sans texte en clair', brutCoffre.includes('logger-coffre') && !brutCoffre.includes('secret-du-test') && !memoire.has('logger2-etat'));
+S.ajouterNote({ type: 'stress', phrase: 'deuxieme-secret' });
+await S.ecrituresFinies();
+const S2 = await import(pathToFileURL(join(racine, 'js', 'store.js')).href + '?relance');
+verifier('coffre : fermé au démarrage', S2.estChiffre() && !S2.estOuvert() && S2.get().notes.length === 0);
+verifier('coffre : mauvais code refusé', !(await S2.ouvrir('111111')));
+verifier('coffre : bon code, tout revient', (await S2.ouvrir('258013')) && S2.get().notes.some((n) => n.phrase === 'deuxieme-secret'));
+verifier('coffre : vérification après absence', (await S2.verifierCode('258013')) && !(await S2.verifierCode('000000')));
+S2.importer({ version: 2, notes: [], types: [] }, 'remplacer');
+await S2.ecrituresFinies();
+verifier('coffre : copie de secours chiffrée', !(memoire.get('logger2-copie') || '').includes('secret') && S2.copieDisponible());
+await S2.restaurerCopie();
+verifier('coffre : copie restaurée', S2.get().notes.length === 2);
+await S2.dechiffrerTout();
+await S2.ecrituresFinies();
+verifier('coffre : retiré, données en clair', !memoire.has('logger2-coffre') && (memoire.get('logger2-etat') || '').includes('deuxieme-secret'));
 
 console.log(`${ok} contrôles réussis, ${ko} échec${ko > 1 ? 's' : ''}`);
 process.exit(ko ? 1 : 0);

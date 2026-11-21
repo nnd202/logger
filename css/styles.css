@@ -551,16 +551,16 @@ svg.planning text { stroke: none; }
 .plc { position: relative; border-left: 1px solid #f5f1f3; }
 .plc-ajout { background: repeating-linear-gradient(-45deg, transparent 0 8px, #faf7f8 8px 16px); }
 .pln { position: absolute; left: 50%; width: 34px; transform: translateX(-50%); }
-.pln-pastille { position: absolute; left: 0; top: -17px; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 17px; line-height: 1; z-index: 3; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+.pln-pastille { position: absolute; left: 0; top: -17px; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 17px; line-height: 1; z-index: 3; touch-action: pan-x pan-y; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
   background: color-mix(in srgb, var(--c) 22%, white); border: 2.5px solid var(--c); box-shadow: 0 0 0 2px #fff; transition: transform .12s; }
 .pln-pastille small { position: absolute; right: -5px; bottom: -4px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 99px; background: var(--c); color: #fff; font-size: 9.5px; font-weight: 700; line-height: 15px; box-shadow: 0 0 0 1.5px #fff; }
 .pln.anneau .pln-pastille { background: #fff; }
 .pln.cede .pln-pastille { border-width: 4.5px; }
 .pln.approx .pln-pastille { border-style: dashed; }
-.pln-barre { position: absolute; left: 50%; top: 0; width: 24px; transform: translateX(-50%); border-radius: 0 0 12px 12px; background: color-mix(in srgb, var(--c) 85%, white); z-index: 1; }
+.pln-barre { position: absolute; left: 50%; top: 0; width: 26px; transform: translateX(-50%); border-radius: 0 0 12px 12px; background: color-mix(in srgb, var(--c) 85%, white); z-index: 1; }
 .pln-barre.degrade { background: linear-gradient(to bottom, color-mix(in srgb, var(--c) 15%, white), var(--c)); }
 .pln-barre.encours { background: repeating-linear-gradient(-45deg, var(--c) 0 6px, color-mix(in srgb, var(--c) 55%, white) 6px 12px); }
-.pln-poignee { position: absolute; left: 50%; width: 16px; height: 6px; margin-top: 4px; transform: translateX(-50%); border-radius: 3px; background: color-mix(in srgb, var(--c) 45%, white); z-index: 2; touch-action: none; }
+.pln-poignee { position: absolute; left: 50%; width: 16px; height: 6px; margin-top: 4px; transform: translateX(-50%); border-radius: 3px; background: color-mix(in srgb, var(--c) 45%, white); z-index: 2; touch-action: pan-x pan-y; -webkit-touch-callout: none; user-select: none; }
 .pln-poignee::after { content: ""; position: absolute; inset: -12px -14px; }
 .pln.saisi .pln-pastille { transform: scale(1.15); box-shadow: 0 0 0 2px #fff, 0 6px 16px rgba(60, 30, 45, .3); }
 .pln.saisi { z-index: 5; }
@@ -600,3 +600,12 @@ svg.pl-liens { position: absolute; top: 0; left: 0; height: 100% !important; poi
 .bulle-heure small { display: block; font-size: 11.5px; font-weight: 500; opacity: .8; margin-top: 2px; }
 .actions-fiche { flex-wrap: nowrap; justify-content: space-between; }
 .actions-fiche .lien { white-space: nowrap; }
+
+/* v2.0.4 : heure de fin dans la barre, colonnes à ranger */
+.pln-fin { position: absolute; left: 0; right: 0; bottom: 4px; text-align: center; font-size: 8.5px; font-weight: 700; letter-spacing: -.3px; line-height: 1; color: #fff; text-shadow: 0 0 2px color-mix(in srgb, var(--c) 70%, black); font-variant-numeric: tabular-nums; pointer-events: none; }
+.pln-fin[hidden] { display: none; }
+.pln.etire .pln-fin { color: color-mix(in srgb, var(--c) 75%, black); text-shadow: none; }
+.pl-entete { touch-action: pan-x pan-y; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; transition: transform .12s; }
+.pl-entete.saisi { border-style: dashed; transform: scale(1.18); box-shadow: 0 6px 16px rgba(60, 30, 45, .25); position: relative; z-index: 6; }
+.plc.saisie { background: color-mix(in srgb, var(--c) 9%, transparent); outline: 2px dashed color-mix(in srgb, var(--c) 45%, white); outline-offset: -2px; border-radius: 10px; }
+.aide-verrou { min-height: 18px; margin: -8px 0 -6px; font-size: 13.5px; color: rgba(255,255,255,.9); text-align: center; }

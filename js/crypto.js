@@ -57,3 +57,22 @@ export async function dechiffrer(enTete, code) {
     throw new Error('code');
   }
 }
+
+// --- Coffre : les données sur l'appareil, chiffrées avec le même code ------------------------------
+// La clé est dérivée une fois à l'ouverture (PBKDF2, même réglage que l'export) et gardée en mémoire,
+// non exportable ; chaque enregistrement chiffre l'état entier avec un vecteur neuf.
+
+export const nouveauSel = () => b64(crypto.getRandomValues(new Uint8Array(16)));
+export const deriver = (code, sel, iterations = ITERATIONS) => cle(code, deB64(sel), iterations);
+
+export async function sceller(k, objet) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const chiffre = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k, new TextEncoder().encode(typeof objet === 'string' ? objet : JSON.stringify(objet)));
+  return { iv: b64(iv), donnees: b64(chiffre) };
+}
+
+/** Renvoie l'objet en clair, ou lève une erreur si la clé ne correspond pas. */
+export async function desceller(k, { iv, donnees }) {
+  const clair = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: deB64(iv) }, k, deB64(donnees));
+  return JSON.parse(new TextDecoder().decode(clair));
+}

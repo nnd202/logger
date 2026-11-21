@@ -267,7 +267,8 @@ function carteNote(t) {
  * Planning déployé : une colonne par type présent (pastille-icône en tête), le temps qui descend,
  * les heures fixes à gauche et les colonnes qui défilent à l'horizontale. Chaque note = une pastille
  * à son heure, prolongée d'une barre si elle dure. Gestes : toucher une pastille ouvre la fiche ;
- * appui long → déplacer ; tirer la petite poignée → durée ; toucher un vide → noter à cette heure.
+ * appui long → déplacer ; appui long sur la petite poignée → durée ; toucher un vide → noter à cette heure.
+ * Appui long sur une icône du haut → ranger la colonne.
  */
 function planning(d, notes) {
   const px = S.reglages().echelleHeure;
@@ -285,10 +286,9 @@ function planning(d, notes) {
   const OFF = 18; // marge haute et basse : les pastilles du bord ne sont pas coupées
   const y = (m) => (h(m) - h0) * px + OFF;
   const hauteur = (h1 - h0) * px + 2 * OFF;
-  // Colonnes dans l'ordre chronologique : le type noté le plus tôt dans la journée à gauche.
-  // La lecture de gauche à droite suit ainsi le fil de la journée.
-  const premier = (tid) => Math.min(...notes.filter((n) => n.type === tid).map(debutM));
-  const types = [...new Set(notes.map((n) => n.type))].sort((a, b) => premier(a) - premier(b));
+  // Colonnes dans l'ordre fixé pour ce jour : rien ne bouge tout seul, un nouveau type s'ajoute à la fin,
+  // et l'appui long sur une icône du haut permet de les ranger.
+  const types = S.ordreColonnes(d, notes);
   const heures = [];
   for (let k = h0; k <= h1; k++) heures.push(`<span class="plh" style="top:${(k - h0) * px + OFF}px">${k} h</span>`);
   const colonnes = types.map((tid) => {
@@ -299,7 +299,7 @@ function planning(d, notes) {
       const barre = n.fin || n.enCours ? Math.max(0, y(finM(n)) - y(a)) : 0;
       const veille = minutes(n.debut) < zero;
       return `<div class="pln ${t?.famille === 'envie' ? 'anneau' : ''} ${n.issue === 'cede' ? 'cede' : ''} ${n.precision !== 'exacte' ? 'approx' : ''} ${veille ? 'veille' : ''}" data-id="${n.id}" style="top:${y(a)}px">
-        ${barre ? `<div class="pln-barre ${t?.endormissement ? 'degrade' : ''} ${n.enCours ? 'encours' : ''}" style="height:${Math.max(22, barre)}px"></div>` : ''}
+        ${barre ? `<div class="pln-barre ${t?.endormissement ? 'degrade' : ''} ${n.enCours ? 'encours' : ''}" style="height:${Math.max(22, barre)}px">${n.fin && !n.enCours ? `<span class="pln-fin" ${barre < 44 ? 'hidden' : ''}>${sansZero(heureDe(n.fin))}</span>` : ''}</div>` : ''}
         <span class="pln-heure">${veille ? 'veille' : `${n.precision === 'vers' ? '~' : ''}${sansZero(heureDe(n.debut))}`}</span>
         <button class="pln-pastille" data-pastille aria-label="${esc(`${nomType(n.type)} · ${quand(n)}${n.intensite != null ? ` · ${n.intensite}` : ''}`)}">${esc(t?.icone || '•')}${n.intensite != null ? `<small>${n.intensite}</small>` : ''}</button>
         <span class="pln-poignee" data-poignee style="top:${Math.max(24, barre)}px" aria-label="Étirer la durée"></span>
@@ -335,7 +335,10 @@ function planning(d, notes) {
           <li><span class="pln-demo anneau"></span>Anneau seul : une envie (anneau épais : cédée).</li>
           <li><span class="pln-demo approx"></span>Pointillés : heure approximative.</li>
           <li><span class="pln-demo barre"></span>Barre : la durée.</li>
-          <li>Toucher une icône du haut : son nom et sa famille. Toucher une pastille : sa fiche. Appui long sur la pastille : la déplacer (son contour passe en pointillés). Tirer la poignée sous la pastille : la durée (la barre passe en pointillés ; remonter jusqu'à la pastille l'annule). Toucher un vide : noter à cette heure. Les colonnes suivent l'ordre de la journée : le type noté le plus tôt à gauche.</li>
+          <li>Toucher une icône du haut : son nom et sa famille. Appui long sur une icône du haut : ranger la colonne ailleurs.</li>
+          <li>Toucher une pastille : sa fiche. Appui long sur la pastille : la déplacer (son contour passe en pointillés).</li>
+          <li>Appui long sur la poignée sous la pastille, puis tirer : la durée (la barre passe en pointillés ; remonter jusqu'à la pastille l'annule). L'heure de fin s'écrit au bas de la barre.</li>
+          <li>Toucher un vide : noter à cette heure. Un nouveau type s'ajoute en dernière colonne ; rien ne change de place tout seul.</li>
         </ul>` : ''}
     </div>`;
 }
@@ -366,43 +369,61 @@ function brancherPlanning() {
     bulle.style.top = `${Math.max(8, ev.clientY - 74)}px`;
   };
   const cacher = () => { bulle.hidden = true; };
+  const hm = (m) => sansZero(heureDe(horodatage(new Date(m * 60000))));
   let g = null;
+  // Pendant un geste (après l'appui long), le doigt ne fait plus défiler l'écran.
+  let bloquer = false;
+  pl.addEventListener('touchmove', (ev) => { if (bloquer) ev.preventDefault(); }, { passive: false });
+  pl.addEventListener('contextmenu', (ev) => ev.preventDefault());
+  const tenir = (sorte, faire) => setTimeout(() => {
+    if (!g || g.sorte !== sorte) return;
+    bloquer = true;
+    navigator.vibrate?.(15);
+    faire();
+  }, 400);
+
   corps.addEventListener('pointerdown', (ev) => {
     const el = ev.target.closest('.pln');
     if (!el) return;
     const n = S.note(el.dataset.id);
-    if (ev.target.closest('[data-poignee]')) {
-      ev.preventDefault();
-      ev.target.setPointerCapture(ev.pointerId);
-      g = { sorte: 'etirer', el, n, debut: minutes(n.debut), debutAff: Math.max(minutes(n.debut), zero + h0 * 60) };
-      el.classList.add('saisi', 'etire');
-      navigator.vibrate?.(8);
+    const poignee = ev.target.closest('[data-poignee]');
+    const pastille = ev.target.closest('[data-pastille]');
+    if (!poignee && !pastille) return;
+    (poignee || pastille).setPointerCapture(ev.pointerId);
+    g = { el, n, x0: ev.clientX, y0: ev.clientY, debut: minutes(n.debut), debutAff: Math.max(minutes(n.debut), zero + h0 * 60) };
+    if (poignee) {
+      // Appui long sur la poignée : un simple glissement fait défiler le planning sans toucher à la durée.
+      g.sorte = 'attente-poignee';
+      g.minuteur = tenir('attente-poignee', () => {
+        g.sorte = 'etirer';
+        el.classList.add('saisi', 'etire');
+        montrer(ev, n.fin ? `jusqu'à ${sansZero(heureDe(n.fin))} · glisse` : 'Glisse vers le bas pour la durée');
+      });
       return;
     }
-    if (!ev.target.closest('[data-pastille]')) return;
-    ev.target.closest('[data-pastille]').setPointerCapture(ev.pointerId);
-    const veille = el.classList.contains('veille');
-    g = { sorte: 'attente', el, n, x0: ev.clientX, y0: ev.clientY, debut: minutes(n.debut) };
-    if (!veille) g.minuteur = setTimeout(() => {
-      if (!g || g.sorte !== 'attente') return;
+    g.sorte = 'attente';
+    if (!el.classList.contains('veille')) g.minuteur = tenir('attente', () => {
       g.sorte = 'deplacer';
       el.classList.add('saisi', 'deplace');
-      navigator.vibrate?.(15);
       montrer(ev, `${sansZero(heureDe(n.debut))} · glisse pour déplacer`);
-    }, 400);
+    });
   });
   corps.addEventListener('pointermove', (ev) => {
     if (!g) return;
-    if (g.sorte === 'attente') {
+    if (g.sorte.startsWith('attente')) {
       if (Math.hypot(ev.clientX - g.x0, ev.clientY - g.y0) > 8) { clearTimeout(g.minuteur); g.sorte = 'rien'; }
       return;
     }
+    const heure = g.el.querySelector('.pln-heure');
+    const fin = g.el.querySelector('.pln-fin');
     if (g.sorte === 'deplacer') {
       const duree = g.n.fin ? minutes(g.n.fin) - g.debut : 0;
       const m = tempsDe(ev.clientY, limite - duree);
       g.m = m;
       g.el.style.top = `${yDe(m)}px`;
-      montrer(ev, `${sansZero(heureDe(horodatage(new Date(m * 60000))))}`);
+      if (heure) heure.textContent = `${g.n.precision === 'vers' ? '~' : ''}${hm(m)}`;
+      if (fin && duree) fin.textContent = hm(m + duree);
+      montrer(ev, duree ? `${hm(m)} → ${hm(m + duree)}` : hm(m));
     } else if (g.sorte === 'etirer') {
       const m = tempsDe(ev.clientY);
       g.m = m;
@@ -410,9 +431,16 @@ function brancherPlanning() {
       const barreH = duree > 0 ? Math.max(22, yDe(m) - yDe(g.debutAff)) : 0;
       let barre = g.el.querySelector('.pln-barre');
       if (!barre && barreH) { barre = document.createElement('div'); barre.className = 'pln-barre'; g.el.prepend(barre); }
-      if (barre) { barre.style.height = `${barreH}px`; barre.hidden = !barreH; }
+      if (barre) {
+        barre.style.height = `${barreH}px`;
+        barre.hidden = !barreH;
+        let f = barre.querySelector('.pln-fin');
+        if (!f) { f = document.createElement('span'); f.className = 'pln-fin'; barre.append(f); }
+        f.textContent = hm(m);
+        f.hidden = barreH < 44;
+      }
       g.el.querySelector('.pln-poignee').style.top = `${Math.max(24, barreH)}px`;
-      montrer(ev, duree > 0 ? `jusqu'à ${sansZero(heureDe(horodatage(new Date(m * 60000))))} · ${texteDuree(duree)}` : 'Sans durée');
+      montrer(ev, duree > 0 ? `jusqu'à ${hm(m)} · ${texteDuree(duree)}` : 'Sans durée');
     }
   });
   const finir = (ev, annule = false) => {
@@ -420,9 +448,15 @@ function brancherPlanning() {
     clearTimeout(g.minuteur);
     const { sorte, n, m, debut } = g;
     g = null;
-    cacher();
-    if (annule) return vueJour();
+    bloquer = false;
+    if (sorte !== 'attente-poignee') cacher();
+    if (annule) return sorte === 'deplacer' || sorte === 'etirer' ? vueJour() : undefined;
     if (sorte === 'attente') return fenetreNote(n);
+    if (sorte === 'attente-poignee') {
+      montrer(ev, 'Appui long sur la poignée, puis tire');
+      bulle.minuteur = setTimeout(cacher, 1800);
+      return;
+    }
     if (sorte === 'deplacer' && m != null && m !== debut) {
       const ts = horodatage(new Date(m * 60000));
       if (ts > horodatage()) { toast("Cette heure n'est pas encore arrivée"); return vueJour(); }
@@ -438,12 +472,84 @@ function brancherPlanning() {
       toast(n.fin ? `Durée : ${texteDuree(dureeNote(n))}` : 'Durée retirée', { libelle: 'Annuler', action: () => { S.modifierNote(n, avant); vueJour(); } });
       return vueJour();
     }
-    if (sorte === 'deplacer') vueJour();
+    if (sorte === 'deplacer' || sorte === 'etirer') vueJour();
   };
   corps.addEventListener('pointerup', (ev) => finir(ev));
   corps.addEventListener('pointercancel', (ev) => finir(ev, true));
+
+  // Colonnes : appui long sur une icône du haut, puis glisser à gauche ou à droite pour la ranger.
+  const tetes = pl.querySelector('.pl-tetes');
+  const defile = pl.querySelector('.pl-defile');
+  const jour = pl.dataset.jour;
+  let c = null;
+  let ignorerClic = false;
+  const placer = () => c.ordre.forEach((tid, i) => {
+    tetes.querySelector(`[data-entete="${tid}"]`).style.order = i;
+    corps.querySelector(`.plc[data-type="${tid}"]`).style.order = i;
+  });
+  const viser = () => {
+    const r = tetes.getBoundingClientRect();
+    const larg = r.width / (c.ordre.length + 1);
+    const i = Math.max(0, Math.min(c.ordre.length - 1, Math.floor((c.x - r.left) / larg)));
+    const j = c.ordre.indexOf(c.tid);
+    if (i === j) return;
+    c.ordre.splice(j, 1);
+    c.ordre.splice(i, 0, c.tid);
+    placer();
+    navigator.vibrate?.(5);
+  };
+  const defiler = () => {
+    if (!c || c.sorte !== 'colonne') return;
+    const r = defile.getBoundingClientRect();
+    const pas = c.x < r.left + 36 ? -6 : c.x > r.right - 36 ? 6 : 0;
+    if (pas) { defile.scrollLeft += pas; viser(); }
+    c.rAF = requestAnimationFrame(defiler);
+  };
+  tetes.addEventListener('pointerdown', (ev) => {
+    const b = ev.target.closest('[data-entete]');
+    if (!b) return;
+    b.setPointerCapture(ev.pointerId);
+    c = { sorte: 'attente', tid: b.dataset.entete, x0: ev.clientX, y0: ev.clientY, x: ev.clientX };
+    c.minuteur = setTimeout(() => {
+      if (!c || c.sorte !== 'attente') return;
+      c.sorte = 'colonne';
+      bloquer = true;
+      navigator.vibrate?.(15);
+      cacher();
+      c.ordre = [...tetes.querySelectorAll('[data-entete]')].map((x) => x.dataset.entete);
+      tetes.querySelector('.pl-entete.ajout').style.order = 999;
+      corps.querySelector('.plc-ajout').style.order = 999;
+      placer();
+      b.classList.add('saisi');
+      corps.querySelector(`.plc[data-type="${c.tid}"]`).classList.add('saisie');
+      c.rAF = requestAnimationFrame(defiler);
+    }, 400);
+  });
+  tetes.addEventListener('pointermove', (ev) => {
+    if (!c) return;
+    c.x = ev.clientX;
+    if (c.sorte === 'attente' && Math.hypot(ev.clientX - c.x0, ev.clientY - c.y0) > 8) { clearTimeout(c.minuteur); c.sorte = 'rien'; }
+    if (c.sorte === 'colonne') viser();
+  });
+  const lacher = (annule) => {
+    if (!c) return;
+    clearTimeout(c.minuteur);
+    cancelAnimationFrame(c.rAF);
+    const { sorte, ordre } = c;
+    c = null;
+    bloquer = false;
+    if (sorte !== 'colonne') return;
+    ignorerClic = true;
+    setTimeout(() => { ignorerClic = false; }, 50);
+    if (!annule) S.ordonnerColonnes(jour, ordre);
+    vueJour();
+  };
+  tetes.addEventListener('pointerup', () => lacher(false));
+  tetes.addEventListener('pointercancel', () => lacher(true));
+
   // Toucher une icône du haut : son nom et sa famille, dans une bulle sous l'icône.
-  pl.querySelector('.pl-tetes').addEventListener('click', (ev) => {
+  tetes.addEventListener('click', (ev) => {
+    if (ignorerClic) return;
     const b = ev.target.closest('[data-entete]');
     if (!b) return;
     const ty = S.type(b.dataset.entete);
@@ -872,8 +978,8 @@ function vueReglages() {
       ${pauses.length ? `<ul class="liste-simple">${pauses.map((p) => `<li><span>Du ${dateNum(p.du)} ${p.au ? `au ${dateNum(p.au)}` : '(en cours)'}</span><button class="lien discret" data-action="suppr-pause" data-id="${p.id}">Supprimer</button></li>`).join('')}</ul>` : ''}
     </div>
     <div class="carte">
-      <h3>Code de verrouillage <small>${r.code ? 'activé' : 'aucun'}</small></h3>
-      <p class="aide">6 chiffres, demandés à l'ouverture et après 5 min en arrière-plan. Le même code chiffre le fichier d'export.</p>
+      <h3>Code <small>${r.code ? (S.estChiffre() ? 'activé · données chiffrées' : 'activé') : 'aucun'}</small></h3>
+      <p class="aide">6 chiffres, demandés à l'ouverture et après 5 min en arrière-plan. Le code chiffre tes données sur cet appareil et le fichier d'export : sans lui, rien ne se relit. Code oublié : seule issue, tout effacer puis restaurer un export.</p>
       <button class="btn btn-large ${r.code ? '' : 'btn-principal'}" data-action="code">${I.cadenas} ${r.code ? 'Changer le code' : 'Créer un code'}</button>
       ${r.code ? '<div class="actions-sec"><button class="lien danger" data-action="supprimer-code">Supprimer le code</button></div>' : ''}
     </div>
@@ -895,7 +1001,7 @@ function vueReglages() {
       <p class="aide">Besoin de parler à quelqu'un tout de suite : <b>3114</b>, numéro national de prévention du suicide, gratuit, 24 h/24.</p>
     </div>
     <div class="zone-danger"><button class="lien danger" data-action="tout-effacer">Tout effacer sur cet appareil</button></div>
-    <p class="pied">Logger v2.0.3 · les données restent sur cet appareil</p>`;
+    <p class="pied">Logger v2.0.4 · les données restent sur cet appareil</p>`;
   app.querySelector('[data-f="import"]').addEventListener('change', (ev) => importer(ev.target.files[0]));
 }
 
@@ -1002,8 +1108,8 @@ function vueGuide() {
     ['Lire sa journée', [
       ['Pastilles des jours', 'Faire glisser pour remonter le temps. Pastille pleine : aujourd\'hui ; cerclée : le jour affiché ; un point dessous : des notes ce jour-là. Toucher la date ouvre un calendrier.'],
       ['Les 24 points', 'Un point par heure, de 0 h à 24 h : gris = rien, puis de plus en plus coloré selon le nombre de notes.'],
-      ['Planning', 'Toucher les points le déploie : une colonne par type (son icône en tête), dans l\'ordre de la journée (le type noté le plus tôt à gauche). Les heures restent fixes à gauche, les colonnes défilent de côté. « Voir les 24 h » et la hauteur s\'y règlent.'],
-      ['Gestes du planning', 'Toucher une pastille : sa fiche. Appui long : la déplacer (l\'heure s\'affiche au-dessus du doigt). Tirer la petite poignée sous la pastille : la durée ; remonter jusqu\'à la pastille l\'annule. Toucher un vide d\'une colonne : noter ce type à cette heure ; la dernière colonne (+) laisse choisir le type.'],
+      ['Planning', 'Toucher les points le déploie : une colonne par type (son icône en tête). Les colonnes ne changent jamais de place toutes seules : un nouveau type s\'ajoute à la fin, et un appui long sur une icône du haut permet de ranger sa colonne ailleurs. Les heures restent fixes à gauche, les colonnes défilent de côté. « Voir les 24 h » et la hauteur s\'y règlent.'],
+      ['Gestes du planning', 'Toucher une pastille : sa fiche. Appui long : la déplacer (l\'heure s\'affiche au-dessus du doigt). Appui long sur la petite poignée sous la pastille, puis tirer : la durée ; remonter jusqu\'à la pastille l\'annule. L\'heure de fin s\'écrit au bas de la barre quand elle est assez longue. Toucher un vide d\'une colonne : noter ce type à cette heure ; la dernière colonne (+) laisse choisir le type.'],
       ['Icônes', 'Chaque type a un emoji, modifiable dans Réglages → Types (suggestions ou n\'importe quel emoji du clavier).'],
       ['Cartes', 'Les notes du jour dans l\'ordre, chaque carte avec son enchaînement.'],
       ['Journée', 'De 0 h à 24 h. Une plage qui passe minuit (endormissement) s\'affiche sur les deux jours.'],
@@ -1017,7 +1123,7 @@ function vueGuide() {
       ['Étiquettes et personnes', 'Ajout direct depuis une note ; Réglages pour renommer, archiver, fusionner.'],
     ]],
     ['Sécurité et sauvegarde', [
-      ['Code à 6 chiffres', 'Verrouille l\'appli et chiffre le fichier d\'export.'],
+      ['Code à 6 chiffres', 'Verrouille l\'appli, chiffre les données sur cet appareil et le fichier d\'export. Code oublié : tout effacer, puis restaurer un export. Après 5 erreurs, une courte attente.'],
       ['Export et restauration', 'Un fichier .txt chiffré. Restaurer : tout remplacer ou fusionner, avec une copie de secours annulable.'],
       ['Exemple', 'Des données inventées pour tester, retirables.'],
     ]],
@@ -1110,7 +1216,7 @@ function choisirModeImport(nom, entete, d) {
 
 function annulerImport() {
   if (!S.copieDisponible()) return toast('Aucune copie à restaurer');
-  S.restaurerCopie(); route(); toast('Import annulé');
+  S.restaurerCopie().then((ok) => { route(); toast(ok ? 'Import annulé' : 'Copie illisible'); });
 }
 
 // --- Code ----------------------------------------------------------------------------------------
@@ -1126,35 +1232,57 @@ function fenetreCode() {
       return recommencer();
     }
     if (code !== premier) { premier = null; titre.textContent = 'Nouveau code'; aide.textContent = 'Les deux codes diffèrent. Recommence.'; return recommencer(true); }
+    aide.textContent = 'Chiffrement de tes données…';
     const sel = Math.random().toString(36).slice(2, 10);
     S.reglages().code = { sel, empreinte: await V.empreinte(code, sel), longueur: V.LONGUEUR };
-    S.enregistrer(); fermer(); route();
-    toast("Code enregistré. Un export fait avant garde l'ancien code.");
+    await S.chiffrerAvec(code, V.LONGUEUR);
+    fermer(); route();
+    toast("Code enregistré : tes données sont chiffrées avec. Un export fait avant garde l'ancien code.");
   });
 }
 
 let enArrierePlan = null;
 
+let essaisRates = 0, pauseJusqua = 0, pauseDuree = 30;
+
+/** Écran du code. Données chiffrées : le code ouvre le coffre (ou le vérifie après une absence). */
 function verrouiller() {
+  const chiffre = S.estChiffre();
   const code = S.reglages().code;
-  if (!code) return false;
+  if (!chiffre && !code) return false;
   fermer(false);
   panneau.hidden = true;
   barre.hidden = true;
   app.innerHTML = '';
-  verrouEl.innerHTML = '<img src="icons/icon-192.png" alt=""><h2>Logger</h2><div data-pave></div><button class="lien" data-f="oubli">Code oublié ?</button>';
+  verrouEl.innerHTML = '<img src="icons/icon-192.png" alt=""><h2>Logger</h2><p class="aide-verrou" data-aide></p><div data-pave></div><button class="lien" data-f="oubli">Code oublié ?</button>';
   verrouEl.hidden = false;
+  const aide = verrouEl.querySelector('[data-aide]');
   V.pave(verrouEl.querySelector('[data-pave]'), async (saisi, recommencer) => {
-    if (await V.empreinte(saisi, code.sel) !== code.empreinte) return recommencer(true);
+    if (Date.now() < pauseJusqua) { aide.textContent = `Trop d'essais : attends ${Math.ceil((pauseJusqua - Date.now()) / 1000)} s.`; return recommencer(true); }
+    let bon;
+    if (chiffre) {
+      aide.textContent = 'Ouverture…';
+      bon = S.estOuvert() ? await S.verifierCode(saisi) : await S.ouvrir(saisi);
+    } else {
+      bon = await V.empreinte(saisi, code.sel) === code.empreinte;
+    }
+    if (!bon) {
+      essaisRates++;
+      if (essaisRates >= 5) { essaisRates = 0; pauseJusqua = Date.now() + pauseDuree * 1000; aide.textContent = `Trop d'essais : attends ${pauseDuree} s.`; pauseDuree *= 2; } else aide.textContent = '';
+      return recommencer(true);
+    }
+    essaisRates = 0; pauseDuree = 30;
+    // Un code créé avant le chiffrement : les données se chiffrent à cette ouverture.
+    if (!chiffre) { aide.textContent = 'Chiffrement de tes données…'; await S.chiffrerAvec(saisi, code.longueur || V.LONGUEUR); toast('Tes données sont maintenant chiffrées avec ton code'); }
     verrouEl.hidden = true;
     verrouEl.innerHTML = '';
     route();
-  }, code.longueur || V.LONGUEUR);
+  }, chiffre ? S.longueurCoffre() : code.longueur || V.LONGUEUR);
   verrouEl.querySelector('[data-f="oubli"]').addEventListener('click', (ev) => {
     const b = ev.currentTarget;
     if (!b.dataset.arme) {
       b.dataset.arme = '1';
-      b.textContent = "Sans le code, seule issue : tout effacer sur cet appareil. Un export chiffré ne se relit qu'avec son code. Toucher encore pour tout effacer.";
+      b.textContent = "Sans le code, rien ne se relit : seule issue, tout effacer sur cet appareil, puis restaurer un export (avec le code de cet export). Toucher encore pour tout effacer.";
       return;
     }
     if (!confirmerDeux(b)) return;
@@ -1266,7 +1394,7 @@ app.addEventListener('click', (ev) => {
     case 'exporter': return exporter();
     case 'annuler-import': return annulerImport();
     case 'code': return fenetreCode();
-    case 'supprimer-code': if (confirmerDeux(el)) { delete S.reglages().code; S.enregistrer(); route(); toast('Code supprimé'); } return;
+    case 'supprimer-code': if (confirmerDeux(el, 'Les données ne seront plus chiffrées. Confirmer ?')) { delete S.reglages().code; S.dechiffrerTout().then(() => { route(); toast('Code supprimé : les données ne sont plus chiffrées'); }); } return;
     case 'charger-exemple': S.chargerExemple(exemple(auj())); toast('Exemple chargé'); return aller('#/');
     case 'retirer-exemple': if (confirmerDeux(el)) { S.retirerExemples(); route(); toast('Exemple retiré'); } return;
     case 'tout-effacer': if (confirmerDeux(el)) { S.toutEffacer(); toast('Tout est effacé'); aller('#/'); } return;
