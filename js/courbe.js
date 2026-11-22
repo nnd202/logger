@@ -2,9 +2,9 @@
 //
 // La courbe passe exactement par chaque signal et reste lisse partout, sans angle ni plateau :
 // - elle monte en douceur pendant `montee` minutes avant un premier signal ;
-// - après un signal, elle commence aussitôt à redescendre, lentement d'abord, et revient à 0 en `retour` minutes ;
-// - si un nouveau signal arrive pendant la descente, la remontée part de là où la courbe en était :
-//   la valeur de la descente à ce moment devient un point d'appui, puis la courbe rejoint le nouveau signal.
+// - entre deux signaux, elle relie directement ce qui a été dit (pas de creux inventé) ;
+// - après le dernier signal, la descente est une estimation (dessinée en pointillé) : lente d'abord,
+//   elle revient à 0 en `retour` minutes ; un signal plus tardif que ce retour ouvre une nouvelle crise.
 // Le tracé est une interpolation cubique monotone (Fritsch–Carlson) : pas de dépassement, jamais sous 0.
 
 export const COURBE_DEFAUT = { montee: 20, retour: 90 };
@@ -68,15 +68,13 @@ export function appuis(liste, p = COURBE_DEFAUT) {
     const pt = points[k];
     const prec = points[k - 1];
     if (!prec) r.push({ m: pt.m - p.montee, v: 0 });
-    else {
-      const ecart = pt.m - prec.m;
-      if (ecart > p.retour + p.montee) {
-        r.push({ m: prec.m + p.retour, v: 0 }, { m: pt.m - p.montee, v: 0 });
-      } else if (ecart > p.montee * 1.5) {
-        const m = pt.m - p.montee;
-        r.push({ m, v: descente(prec.v, m - prec.m, p) });
-      }
+    else if (pt.m - prec.m >= p.retour) {
+      // Plus rien dit pendant tout le retour au calme : la courbe est revenue à 0 entre les deux.
+      const fin = prec.m + p.retour, depart = pt.m - p.montee;
+      r.push({ m: fin, v: 0 });
+      if (depart > fin) r.push({ m: depart, v: 0 });
     }
+    // Sinon, la courbe relie directement ce qui a été dit : ne pas avoir de nouvelles n'est pas une baisse.
     r.push({ m: pt.m, v: pt.v, signal: true });
   }
   if (points.length) r.push({ m: points[points.length - 1].m + p.retour, v: 0 });

@@ -187,8 +187,12 @@ verifier('courbe : plate avant, monte doucement', K.niveau(970, ptsK, pp) === 0 
 verifier('courbe : passe par les signaux', Math.abs(K.niveau(1000, ptsK, pp) - 6) < 1e-9 && Math.abs(K.niveau(1015, ptsK, pp) - 8) < 1e-9);
 verifier('courbe : redescend aussitôt, lentement, sans plateau', K.niveau(1020, ptsK, pp) < 8 && K.niveau(1020, ptsK, pp) > 7.8 && K.niveau(1060, ptsK, pp) < 6);
 verifier('courbe : revient à 0 en 1 h 30', K.niveau(1104, ptsK, pp) > 0 && K.niveau(1105, ptsK, pp) === 0);
-const fK = K.courbe([{ m: 0, v: 6 }, { m: 40, v: 8 }], pp);
-verifier('courbe : remontée depuis là où la descente en était', fK(20) < 6 && fK(20) > 5 && fK(40) === 8);
+const fK = K.courbe([{ m: 0, v: 8 }, { m: 36, v: 5 }], pp);
+let direct = true;
+for (let t = 0; t <= 36; t++) if (fK(t) < 5 - 1e-9 || fK(t) > 8 + 1e-9) direct = false;
+verifier('courbe : relie directement 8 → 5, sans creux inventé', direct && fK(36) === 5);
+const fR = K.courbe([{ m: 0, v: 6 }, { m: 200, v: 4 }], pp);
+verifier('courbe : retour à 0 entre deux saisies très espacées', fR(95) === 0 && fR(150) === 0 && fR(200) === 4);
 let lisse = true;
 const fL = K.courbe([{ m: 0, v: 4 }, { m: 30, v: 7 }, { m: 40, v: 8 }, { m: 60, v: 6 }, { m: 200, v: 5 }], pp);
 for (let t = -30; t < 300; t += 0.5) { const a1 = fL(t + 0.5) - fL(t), a2 = fL(t + 1) - fL(t + 0.5); if (Math.abs(a2 - a1) > 0.05) lisse = false; if (fL(t) < 0 || fL(t) > 10) lisse = false; }

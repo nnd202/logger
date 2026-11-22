@@ -7,7 +7,7 @@ import * as C from './crypto.js';
 import { exemple } from './demo.js';
 import { QUESTIONNAIRES, questionnaire, bande, AIDE_URGENCE } from './questionnaires.js';
 import { activerBulles, teinte } from './graph.js';
-import { niveau, echantillons, crises } from './courbe.js';
+import { niveau, echantillons, crises, courbe } from './courbe.js';
 import { FAMILLES, famille, SAISIE, CERCLES, FACETTES, MOMENTS, AIDE, DEBUT_JOURNEE, LATENCES, ZONE_MIN, SUGGESTIONS } from './catalogue.js';
 import {
   aujourdhui, heureMaintenant, ajouterJours, jourSemaine, dateCourte, dateNum, dateLongue, JOURS_COURTS, JOURS, ecartJours,
@@ -659,21 +659,19 @@ function sectionCourbe(d) {
   const crEnCours = estAuj ? cr.find((c) => c.debut <= now && c.fin > now) : null;
   const hm = (m) => sansZero(heureDe(horodatage(new Date(m * 60000))));
 
-  // Vue simplifiée : toute la journée en un coup d'œil.
-  const ech = echantillons(zero, fin, pts, p, 3);
-  const XS = (m) => ((m - zero) / 1440) * 288, YS = (v) => 46 - v * 4.2;
-  const t = traceCourbe(ech, XS, YS, 46);
-  const coupe = estAuj ? Math.max(0, Math.min(288, XS(now))) : 288;
   const resume = crEnCours
     ? `<b>Crise en cours</b> · ≈ ${Math.round(niv)}/10 · depuis ${hm(crEnCours.debut)}`
     : cr.length ? `<b>${pluriel(cr.length, 'crise')}</b> · pic ${Math.max(...cr.map((c) => c.pic))}/10` : `<b>Calme</b>${estAuj ? '' : ' ce jour-là'}`;
-  const mini = `<svg class="cc-mini" viewBox="0 0 288 50" preserveAspectRatio="none" aria-hidden="true">
-    <defs><clipPath id="cc-avant"><rect x="0" y="0" width="${coupe}" height="50"/></clipPath><clipPath id="cc-apres"><rect x="${coupe}" y="0" width="${288 - coupe}" height="50"/></clipPath></defs>
-    <line x1="0" x2="288" y1="46" y2="46" class="cc-base"/>
-    <g clip-path="url(#cc-avant)"><path d="${t.aire}" class="cc-aire"/><path d="${t.ligne}" class="cc-ligne"/></g>
-    <g clip-path="url(#cc-apres)" opacity=".35"><path d="${t.aire}" class="cc-aire"/><path d="${t.ligne}" class="cc-ligne"/></g>
-    ${estAuj ? `<line x1="${coupe}" x2="${coupe}" y1="2" y2="48" class="cc-now"/>` : ''}
-  </svg>`;
+  // Coup d'œil sur la journée : 24 points, un par heure, teintés par le niveau le plus haut de l'heure.
+  const f = courbe(pts, p);
+  const frise = Array.from({ length: 24 }, (_, h) => {
+    const a = zero + h * 60;
+    if (estAuj && a > now) return `<i class="futur" data-tip="${h} h – ${h + 1} h"></i>`;
+    let max = 0;
+    for (let t = a; t <= Math.min(a + 60, estAuj ? now : a + 60); t += 5) max = Math.max(max, f(t));
+    const v = Math.round(max);
+    return `<i style="background:${v ? teinte(0.2 + 0.8 * (max / 10)) : '#e9e5e7'}" data-tip="${v ? `Jusqu'à ≈ ${v}/10` : 'Rien à signaler'}\n${h} h – ${h + 1} h"></i>`;
+  }).join('');
 
   // Vue détaillée : heure par heure, défilement latéral.
   let detail = '';
@@ -685,13 +683,19 @@ function sectionCourbe(d) {
       if (!n.fin && minutes(n.debut) < zero) return '';
       return b > a ? `<rect x="${X(a)}" y="0" width="${X(b) - X(a)}" height="${CH + 4}" class="cc-nuit ${n.debutReel || n.finReelle ? '' : 'visee'}"/>` : '';
     }).join('');
-    const morceaux = cr.map((c, k) => {
-      const a = Math.max(zero, c.debut - p.montee), b = Math.min(fin, c.fin);
-      const e = echantillons(a, b, pts, p, 1);
-      if (e.length < 2) return '';
-      const tr = traceCourbe(e, X, CY, CH);
-      // Plus d'estompage : la courbe elle-même revient doucement à 0.
-      return `<path d="${tr.aire}" class="cc-aire-d"/><path d="${tr.ligne}" class="cc-ligne-d"/>`;
+    // Trait plein : ce qui a été dit (et relié). Pointillé : la descente estimée après la dernière saisie.
+    const morceaux = cr.map((c) => {
+      const a = Math.max(zero, c.debut - p.montee), m = Math.min(fin, c.derniere), b = Math.min(fin, c.fin);
+      let h = '';
+      if (m > a) {
+        const tr = traceCourbe(echantillons(a, m, pts, p, 1), X, CY, CH);
+        h += `<path d="${tr.aire}" class="cc-aire-d"/><path d="${tr.ligne}" class="cc-ligne-d"/>`;
+      }
+      if (b > Math.max(a, m)) {
+        const tr = traceCourbe(echantillons(Math.max(a, m), b, pts, p, 1), X, CY, CH);
+        h += `<path d="${tr.aire}" class="cc-aire-d estime"/><path d="${tr.ligne}" class="cc-ligne-d estime"/>`;
+      }
+      return h;
     }).join('');
     const jour = pts.filter((x) => x.m >= zero && x.m < fin);
     detail = `<div class="cc-detail">
@@ -714,7 +718,7 @@ function sectionCourbe(d) {
   return `<section class="carte-courbe ${ouvert ? 'ouvert' : ''}">
     <button class="cc-tete" data-action="courbe-bascule" aria-expanded="${ouvert}">
       <span class="cc-resume">${resume}</span>
-      ${mini}
+      <span class="mini-frise">${frise}</span>
       <span class="mini-heures"><span>0 h</span><span>6 h</span><span>12 h</span><span>18 h</span><span>24 h</span></span>
       <span class="planning-bascule">${ouvert ? 'Replier la courbe' : 'Voir heure par heure'} ${I.bas}</span>
     </button>
