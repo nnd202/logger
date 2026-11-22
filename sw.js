@@ -1,13 +1,13 @@
 // Réseau d'abord, cache en secours. Tout nouveau fichier doit être ajouté à CORE
 // (node tools/check.mjs le contrôle).
-const CACHE = 'logger-v11';
+const CACHE = 'logger-v12';
 const CORE = [
   './',
   'index.html',
   'manifest.webmanifest',
   'css/styles.css',
   'js/app.js',
-  'js/store.js', 'js/stockage.js', 'js/questionnaires.js',
+  'js/store.js', 'js/stockage.js', 'js/questionnaires.js', 'js/courbe.js',
   'js/calc.js',
   'js/catalogue.js',
   'js/crypto.js',

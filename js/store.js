@@ -3,6 +3,7 @@ import { uid, horodatage, jourDe, minutes, ajouterJours, ajouterMinutes } from '
 import { typesDeDepart, etiquettesDeDepart, DEBUT_JOURNEE, ICONES, ICONE_FAMILLE, ECHELLE_COPING } from './catalogue.js';
 import * as C from './crypto.js';
 import { ouvrirStockage } from './stockage.js';
+import { COURBE_DEFAUT } from './courbe.js';
 
 const CLE = 'logger2-etat'; // état en clair (tant qu'aucun code n'existe)
 const CLE_COFFRE = 'logger2-coffre'; // état chiffré avec le code
@@ -53,7 +54,8 @@ export function vierge() {
     pauses: [], // [{ id, du, au | null }]
     etiquettes: etiquettesDeDepart(),
     personnes: [], // [{ id, nom }]
-    reglages: { echelleHeure: 48, planningOuvert: true, rythme: rythmeDeDepart() },
+    reglages: { echelleHeure: 48, planningOuvert: true, rythme: rythmeDeDepart(), ecran: 'courbe', courbeOuverte: false, courbe: { ...COURBE_DEFAUT } },
+    signaux: [], // [{ id, ts, v }] : la courbe des crises
     questionnaires: [], // [{ id, q, le, reponses, score }]
     colonnes: {}, // { 'AAAA-MM-JJ': [id de type, …] } : ordre des colonnes du planning, fixé par l'utilisateur
   };
@@ -65,6 +67,8 @@ function normaliser(e) {
   r.reglages = { ...v.reglages, ...(e?.reglages || {}) };
   if (!r.colonnes || typeof r.colonnes !== 'object') r.colonnes = {};
   if (!Array.isArray(r.questionnaires)) r.questionnaires = [];
+  if (!Array.isArray(r.signaux)) r.signaux = [];
+  r.reglages.courbe = { ...COURBE_DEFAUT, ...(r.reglages.courbe || {}) };
   if (!r.reglages.rythme?.types?.length) r.reglages.rythme = rythmeDeDepart();
   // Types ajoutés au catalogue après coup : on les complète sans toucher aux réglages existants.
   const ids = new Set(r.types.map((t) => t.id));
@@ -271,7 +275,7 @@ export function enPause(date) {
 
 /** Renseigné : au moins une note, un débrief, un bilan, ou « journée calme ». */
 export function statutJour(date) {
-  if (notesDuJour(date).length || etat.jours[date]?.nuit || etat.jours[date]?.bilan) return 'renseigne';
+  if (notesDuJour(date).length || etat.jours[date]?.nuit || etat.jours[date]?.bilan || signauxDuJour(date).length) return 'renseigne';
   if (etat.jours[date]?.calme) return 'calme';
   if (enPause(date)) return 'pause';
   return 'vide';
@@ -390,6 +394,23 @@ export function nuitDe(d) {
   if (fin && fin <= debut) fin = null;
   const sommeil = fin ? minutes(fin) - minutes(debut) - (n?.eveille || 0) : null;
   return { debut, fin, debutReel: !!e, finReelle: !!n?.reveil, sommeil, reveils: n?.reveils ?? null, qualite: n?.qualite ?? null };
+}
+
+// --- Signaux de la courbe des crises -----------------------------------------------------------------
+
+export const signaux = () => [...etat.signaux].sort((a, b) => a.ts.localeCompare(b.ts));
+export const signal = (id) => etat.signaux.find((x) => x.id === id);
+export const signauxDuJour = (date) => etat.signaux.filter((x) => x.ts.startsWith(date));
+export function ajouterSignal(ts, v) {
+  const x = { id: uid('s'), ts, v };
+  etat.signaux.push(x);
+  enregistrer();
+  return x;
+}
+export function modifierSignal(x, champs) { Object.assign(x, champs); enregistrer(); }
+export function supprimerSignal(id) {
+  etat.signaux = etat.signaux.filter((x) => x.id !== id);
+  enregistrer();
 }
 
 // --- Questionnaires --------------------------------------------------------------------------------
@@ -539,7 +560,7 @@ export function importer(d, mode) {
       const ids = new Set(etat[cle].map((x) => x.id));
       etat[cle].push(...(d[cle] || []).filter((x) => !ids.has(x.id)));
     };
-    for (const cle of ['types', 'notes', 'pauses', 'etiquettes', 'personnes', 'questionnaires']) ajoute(cle);
+    for (const cle of ['types', 'notes', 'pauses', 'etiquettes', 'personnes', 'questionnaires', 'signaux']) ajoute(cle);
     etat.jours = { ...(d.jours || {}), ...etat.jours };
     etat.colonnes = { ...(d.colonnes || {}), ...etat.colonnes };
   }

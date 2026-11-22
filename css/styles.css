@@ -692,3 +692,33 @@ svg.pl-liens { position: absolute; top: 0; left: 0; height: 100% !important; poi
 .pl-nuit-g { position: absolute; right: 3px; width: 3px; border-radius: 2px; background: rgba(79, 111, 174, .45); }
 .pl-nuit-g.visee { background: repeating-linear-gradient(to bottom, rgba(79, 111, 174, .45) 0 4px, transparent 4px 8px); }
 .pln-demo.nuit { border: 0; border-radius: 4px; background: rgba(79, 111, 174, .18); }
+
+/* v2.2 essai : courbe des crises */
+.carte-courbe { background: var(--carte); border-radius: var(--rayon); box-shadow: var(--ombre); padding: 12px 12px 10px; margin-bottom: 10px; }
+.cc-tete { display: flex; flex-direction: column; gap: 6px; width: 100%; text-align: left; }
+.cc-resume { font-size: 14px; color: var(--texte-2); }
+.cc-resume b { color: var(--texte); }
+.cc-mini { width: 100%; height: 54px; display: block; fill: none; }
+.cc-aire { fill: rgba(194, 65, 107, .2); stroke: none; }
+.cc-ligne { fill: none; stroke: #c2416b; stroke-width: 1.6; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.cc-base { stroke: #e2dade; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.cc-now { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.cc-detail { position: relative; display: flex; margin-top: 10px; }
+.cc-axe { position: relative; flex: none; width: 22px; }
+.cc-axe span { position: absolute; right: 4px; transform: translateY(-50%); font-size: 10.5px; color: var(--texte-3); font-variant-numeric: tabular-nums; }
+.cc-defile { flex: 1; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.cc-defile::-webkit-scrollbar { display: none; }
+.cc-grand { display: block; fill: none; stroke: none; }
+.cc-grand text { fill: var(--texte-3); font-size: 10.5px; font-family: inherit; stroke: none; }
+.cc-heure { stroke: #f1ecee; stroke-width: 1; }
+.cc-mi { stroke: #efe8eb; stroke-width: 1; stroke-dasharray: 3 4; }
+.cc-ligne-d { fill: none; stroke-width: 2.4; stroke-linejoin: round; stroke-linecap: round; }
+.cc-futur { fill: rgba(255, 255, 255, .6); }
+.cc-nuit { fill: rgba(79, 111, 174, .08); }
+.cc-nuit.visee { fill: rgba(79, 111, 174, .045); }
+.cc-point { cursor: pointer; }
+.cc-point circle:last-child { fill: #fff; stroke: #a82654; stroke-width: 2.2; }
+.cc-crises { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--texte-2); }
+.cc-crises em { color: var(--accent); font-style: normal; font-weight: 600; }
+.cc-actions { display: flex; gap: 8px; margin-top: 10px; }
+.cc-actions .btn { flex: 1; }

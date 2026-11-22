@@ -7,6 +7,7 @@ import * as C from './crypto.js';
 import { exemple } from './demo.js';
 import { QUESTIONNAIRES, questionnaire, bande, AIDE_URGENCE } from './questionnaires.js';
 import { activerBulles, teinte } from './graph.js';
+import { niveau, echantillons, crises } from './courbe.js';
 import { FAMILLES, famille, SAISIE, CERCLES, FACETTES, MOMENTS, AIDE, DEBUT_JOURNEE, LATENCES, ZONE_MIN, SUGGESTIONS } from './catalogue.js';
 import {
   aujourdhui, heureMaintenant, ajouterJours, jourSemaine, dateCourte, dateNum, dateLongue, JOURS_COURTS, JOURS, ecartJours,
@@ -175,7 +176,7 @@ function vueJour() {
   const d = jourAffiche;
   // Même jour réaffiché (durée, déplacement, hauteur, note ajoutée) : on garde la position, verticale et latérale.
   const memo = d === dernierJourAffiche && app.querySelector('.bandeau-jour')
-    ? { y: window.scrollY, x: app.querySelector('.pl-defile')?.scrollLeft || 0 } : null;
+    ? { y: window.scrollY, x: app.querySelector('.pl-defile')?.scrollLeft || 0, cx: app.querySelector('.cc-defile')?.scrollLeft ?? null } : null;
   dernierJourAffiche = d;
   const a = auj();
   const notes = S.notesDuJour(d);
@@ -190,6 +191,8 @@ function vueJour() {
   const carteNuit = d === a && heure < 12 && !S.nuit(d) && !S.carteFermee(d, 'nuit') && statut !== 'pause';
   const carteBilan = d === a && heure >= 19 && !S.bilan(d) && !S.carteFermee(d, 'bilan') && statut !== 'pause';
   const bilanHier = carteNuit && !S.bilan(hier) && !S.carteFermee(hier, 'bilan') && S.statutJour(hier) !== 'pause';
+  // Écran du jour : la courbe des crises (essai) ; le planning et les cartes restent disponibles (Réglages).
+  const courbe = S.reglages().ecran !== 'planning';
 
   app.innerHTML = `
     <header class="bandeau-tete bandeau-jour">
@@ -209,20 +212,21 @@ function vueJour() {
       <div><b>🌙 Bilan de la journée</b><small>${resumeCourt(d)}</small></div>
       <div class="cm-actions"><button class="btn btn-principal" data-action="bilan" data-d="${d}">Faire le bilan</button><button class="lien discret" data-action="fermer-carte" data-quoi="bilan" data-d="${d}">Pas ce soir</button></div>
     </div>` : ''}
-    ${encours.length ? `<div class="en-cours">${encours.map((n) => `<div class="carte-encours" style="--c:${couleurDe(n)}">
+    ${!courbe && encours.length ? `<div class="en-cours">${encours.map((n) => `<div class="carte-encours" style="--c:${couleurDe(n)}">
         <button class="ouvrir" data-action="note" data-id="${n.id}"><b><i class="pastille-mini"></i>${esc(nomType(n.type))}</b><small>en cours depuis ${sansZero(heureDe(n.debut))} · ${texteDuree(dureeNote(n))}</small></button>
         <button class="btn btn-stop" data-action="arreter" data-id="${n.id}">${I.stop} J'arrête</button></div>`).join('')}</div>` : ''}
     ${infosJour(d)}
-    <section class="carte-planning ${ouvert ? 'ouvert' : ''}">
+    ${courbe ? sectionCourbe(d) : ''}
+    ${courbe ? '' : `<section class="carte-planning ${ouvert ? 'ouvert' : ''}">
       <button class="planning-tete" data-action="planning" aria-expanded="${ouvert}">
         ${miniFrise(d, affichees)}
         <span class="planning-bascule">${ouvert ? 'Replier le planning' : 'Déployer le planning'} ${I.bas}</span>
       </button>
       ${ouvert ? (affichees.length || S.nuitDe(d) || S.nuitDe(ajouterJours(d, 1)) ? planning(d, affichees) : '<p class="vide">Rien à placer sur le planning.</p>') : ''}
-    </section>
+    </section>`}
     ${!S.reglages().code ? `<div class="rappel-code">${I.cadenas}<span>Aucun code : l'appli s'ouvre sans protection.</span><button class="lien" data-action="code">Créer un code</button></div>` : ''}
     ${statut === 'pause' ? `<div class="statut-jour statut-pause"><span>Pause du suivi depuis le ${dateNum(pause.du)}</span><button class="lien" data-action="fin-pause">Reprendre</button></div>` : ''}
-    ${notes.length ? `<ul class="cartes">${notes.map((t) => carteNote(t)).join('')}</ul>` : `
+    ${courbe ? '' : notes.length ? `<ul class="cartes">${notes.map((t) => carteNote(t)).join('')}</ul>` : `
       <div class="jour-vide">
         <p>${d === a ? 'Rien de noté pour l\'instant. Touche <b>+</b> en bas quand quelque chose se passe.' : 'Aucune note ce jour-là.'}</p>
         ${statut === 'calme'
@@ -232,7 +236,8 @@ function vueJour() {
       </div>`}
     <div class="pied-jour"><button class="lien" data-action="aller" data-h="#/guide">${I.guide} Tout ce que fait Logger</button></div>`;
   // Les pastilles centrent le jour affiché.
-  if (ouvert) brancherPlanning();
+  if (!courbe && ouvert) brancherPlanning();
+  if (courbe) brancherCourbe(memo?.cx ?? null);
   if (memo) {
     const defile = app.querySelector('.pl-defile');
     if (defile) defile.scrollLeft = memo.x;
@@ -623,6 +628,167 @@ function brancherPlanning() {
     col.append(empreinte);
     navigator.vibrate?.(5);
   });
+}
+
+// --- Courbe des crises (écran du jour, essai) -------------------------------------------------------
+
+const PXH = 64; // pixels par heure dans la vue détaillée
+const CH = 150, CY = (v) => CH - v * 13; // hauteur utile ; 0 → 150, 10 → 20
+
+function pointsCourbe() {
+  return S.signaux().map((x) => ({ m: minutes(x.ts), v: x.v, id: x.id, ts: x.ts }));
+}
+
+/** Tracé d'une portion de courbe : contour et surface (pour la surface, fermé sur la ligne de base). */
+function traceCourbe(ech, X, Y, base) {
+  const l = ech.map((e, i) => `${i ? 'L' : 'M'}${X(e.m).toFixed(1)},${Y(e.v).toFixed(1)}`).join(' ');
+  return { ligne: l, aire: `${l} L${X(ech[ech.length - 1].m).toFixed(1)},${base} L${X(ech[0].m).toFixed(1)},${base} Z` };
+}
+
+function sectionCourbe(d) {
+  const p = S.reglages().courbe;
+  const pts = pointsCourbe();
+  const zero = minutes(`${d}T00:00`);
+  const fin = zero + 1440;
+  const now = maintenantMin();
+  const estAuj = d === auj();
+  const ouvert = S.reglages().courbeOuverte;
+  const niv = estAuj ? niveau(now, pts, p) : 0;
+  const dernier = pts.filter((x) => x.m <= now).pop();
+  const cr = crises(pts, p).filter((c) => c.fin > zero && c.debut - p.montee < fin);
+  const crEnCours = estAuj ? cr.find((c) => c.debut <= now && c.fin > now) : null;
+  const hm = (m) => sansZero(heureDe(horodatage(new Date(m * 60000))));
+
+  // Vue simplifiée : toute la journée en un coup d'œil.
+  const ech = echantillons(zero, fin, pts, p, 5);
+  const XS = (m) => ((m - zero) / 1440) * 288, YS = (v) => 46 - v * 4.2;
+  const t = traceCourbe(ech, XS, YS, 46);
+  const coupe = estAuj ? Math.max(0, Math.min(288, XS(now))) : 288;
+  const resume = crEnCours
+    ? `<b>Crise en cours</b> · ≈ ${Math.round(niv)}/10 · depuis ${hm(crEnCours.debut)}`
+    : cr.length ? `<b>${pluriel(cr.length, 'crise')}</b> · pic ${Math.max(...cr.map((c) => c.pic))}/10` : `<b>Calme</b>${estAuj ? '' : ' ce jour-là'}`;
+  const mini = `<svg class="cc-mini" viewBox="0 0 288 50" preserveAspectRatio="none" aria-hidden="true">
+    <defs><clipPath id="cc-avant"><rect x="0" y="0" width="${coupe}" height="50"/></clipPath><clipPath id="cc-apres"><rect x="${coupe}" y="0" width="${288 - coupe}" height="50"/></clipPath></defs>
+    <line x1="0" x2="288" y1="46" y2="46" class="cc-base"/>
+    <g clip-path="url(#cc-avant)"><path d="${t.aire}" class="cc-aire"/><path d="${t.ligne}" class="cc-ligne"/></g>
+    <g clip-path="url(#cc-apres)" opacity=".35"><path d="${t.aire}" class="cc-aire"/><path d="${t.ligne}" class="cc-ligne"/></g>
+    ${estAuj ? `<line x1="${coupe}" x2="${coupe}" y1="2" y2="48" class="cc-now"/>` : ''}
+  </svg>`;
+
+  // Vue détaillée : heure par heure, défilement latéral.
+  let detail = '';
+  if (ouvert) {
+    const W = 24 * PXH;
+    const X = (m) => ((m - zero) / 60) * PXH;
+    const nuits = [S.nuitDe(d), S.nuitDe(ajouterJours(d, 1))].filter(Boolean).map((n) => {
+      const a = Math.max(zero, minutes(n.debut)), b = Math.min(fin, n.fin ? minutes(n.fin) : fin);
+      if (!n.fin && minutes(n.debut) < zero) return '';
+      return b > a ? `<rect x="${X(a)}" y="0" width="${X(b) - X(a)}" height="${CH + 4}" class="cc-nuit ${n.debutReel || n.finReelle ? '' : 'visee'}"/>` : '';
+    }).join('');
+    const morceaux = cr.map((c, k) => {
+      const a = Math.max(zero, c.debut - p.montee), b = Math.min(fin, c.fin);
+      const e = echantillons(a, b, pts, p, 2);
+      if (e.length < 2) return '';
+      const tr = traceCourbe(e, X, CY, CH);
+      // L'estompage : plein jusqu'à la fin du maintien, puis vers le transparent.
+      const g = `cc-g${k}`;
+      return `<defs><linearGradient id="${g}" gradientUnits="userSpaceOnUse" x1="${X(c.finTenue)}" x2="${X(c.fin)}" y1="0" y2="0">
+          <stop offset="0" stop-color="#c2416b" stop-opacity="1"/><stop offset="1" stop-color="#c2416b" stop-opacity="0"/></linearGradient></defs>
+        <path d="${tr.aire}" fill="url(#${g})" opacity=".22"/><path d="${tr.ligne}" stroke="url(#${g})" class="cc-ligne-d"/>`;
+    }).join('');
+    const jour = pts.filter((x) => x.m >= zero && x.m < fin);
+    detail = `<div class="cc-detail">
+      <div class="cc-axe" aria-hidden="true" style="height:${CH + 26}px"><span style="top:${CY(10)}px">10</span><span style="top:${CY(5)}px">5</span><span style="top:${CY(0)}px">0</span></div>
+      <div class="cc-defile">
+        <svg width="${W}" height="${CH + 26}" style="width:${W}px;height:${CH + 26}px" class="cc-grand" role="img" aria-label="Courbe des crises heure par heure">
+          ${nuits}
+          ${Array.from({ length: 25 }, (_, h) => `<line x1="${h * PXH}" x2="${h * PXH}" y1="0" y2="${CH}" class="cc-heure"/>${h < 24 ? `<text x="${h * PXH + 3}" y="${CH + 18}">${h} h</text>` : ''}`).join('')}
+          <line x1="0" x2="${W}" y1="${CY(5)}" y2="${CY(5)}" class="cc-mi"/>
+          <line x1="0" x2="${W}" y1="${CH}" y2="${CH}" class="cc-base"/>
+          ${morceaux}
+          ${estAuj ? `<rect x="${X(now)}" y="0" width="${Math.max(0, W - X(now))}" height="${CH}" class="cc-futur"/><line x1="${X(now)}" x2="${X(now)}" y1="0" y2="${CH}" class="cc-now"/>` : ''}
+          ${jour.map((x) => `<g class="cc-point" data-signal="${x.id}"><circle cx="${X(x.m)}" cy="${CY(x.v)}" r="16" fill="transparent"/><circle cx="${X(x.m)}" cy="${CY(x.v)}" r="5"/></g>`).join('')}
+        </svg>
+      </div>
+    </div>
+    ${cr.length ? `<ul class="cc-crises">${cr.map((c) => `<li><b>${hm(c.debut)}</b> → dernière trace ${hm(c.derniere)} · pic ${c.pic}/10 · ${pluriel(c.points.length, 'signal', 'signaux')}${estAuj && c.fin > now ? ' · <em>en cours</em>' : ''}</li>`).join('')}</ul>` : ''}`;
+  }
+
+  return `<section class="carte-courbe ${ouvert ? 'ouvert' : ''}">
+    <button class="cc-tete" data-action="courbe-bascule" aria-expanded="${ouvert}">
+      <span class="cc-resume">${resume}</span>
+      ${mini}
+      <span class="mini-heures"><span>0 h</span><span>6 h</span><span>12 h</span><span>18 h</span><span>24 h</span></span>
+      <span class="planning-bascule">${ouvert ? 'Replier la courbe' : 'Voir heure par heure'} ${I.bas}</span>
+    </button>
+    ${detail}
+    ${estAuj ? `<div class="cc-actions">
+      <button class="btn btn-principal" data-action="signaler">Signaler</button>
+      ${crEnCours && dernier ? `<button class="btn" data-action="toujours" data-v="${dernier.v}">Toujours là · ${dernier.v}</button>` : ''}
+    </div>` : ''}
+  </section>`;
+}
+
+function brancherCourbe(memoX) {
+  const defile = app.querySelector('.cc-defile');
+  if (!defile) return;
+  if (memoX != null) defile.scrollLeft = memoX;
+  else {
+    const d = jourAffiche;
+    const zero = minutes(`${d}T00:00`);
+    const p = S.reglages().courbe;
+    const c = crises(pointsCourbe(), p).find((x) => x.fin > zero && x.debut < zero + 1440);
+    const cible = d === auj() ? maintenantMin() - 3 * 60 : c ? c.debut - 60 : zero + 8 * 60;
+    defile.scrollLeft = Math.max(0, ((cible - zero) / 60) * PXH);
+  }
+  defile.addEventListener('click', (ev) => {
+    const g = ev.target.closest('[data-signal]');
+    if (g) fenetreSignal(S.signal(g.dataset.signal));
+  });
+}
+
+/** Signaler l'intensité (nouveau) ou corriger un signal. Nouveau : toucher un chiffre enregistre aussitôt. */
+function fenetreSignal(x) {
+  const nouveau = !x;
+  ouvrirFenetre(`<form class="saisie" style="--c:#a82654">
+    <h2>${nouveau ? 'Là, maintenant' : 'Signal'} <small>${nouveau ? "l'intensité de la crise" : `de ${sansZero(heureDe(x.ts))}`}</small></h2>
+    <div class="saisie-corps">
+      ${nouveau ? `<p class="titre-choix">Quand</p>${puces1('il', [{ v: 0, t: 'Là' }, { v: 10, t: 'il y a 10 min' }, { v: 20, t: '20 min' }, { v: 30, t: '30 min' }, { v: 60, t: '1 h' }], 0)}` : `<label class="champ"><span>Heure</span><input type="time" name="heure" value="${heureDe(x.ts)}"></label>`}
+      <p class="titre-choix">Intensité${nouveau ? '<em>un toucher enregistre</em>' : ''}</p>
+      ${grille010('v', nouveau ? null : x.v, 'calme', 'au maximum')}
+      ${nouveau ? '' : '<button class="btn btn-principal btn-large">Enregistrer</button>'}
+      ${nouveau ? '<button type="button" class="lien" data-f="note">Note détaillée (types, envies, coping…)</button>' : '<div class="actions-sec"><button type="button" class="lien danger" data-f="suppr">Supprimer ce signal</button></div>'}
+    </div>
+  </form>`, (fd) => {
+    const v = nombreOuNull(fd.get('v'));
+    if (v == null) return toast('Choisis une intensité');
+    const ts = `${x.ts.slice(0, 10)}T${fd.get('heure') || heureDe(x.ts)}`;
+    if (ts > horodatage()) return toast("Cette heure n'est pas encore arrivée");
+    S.modifierSignal(x, { ts, v });
+    fermer();
+    setTimeout(() => { route(); toast('Signal corrigé'); }, 60);
+  });
+  const f = couche.querySelector('form');
+  brancherChoix(f);
+  if (nouveau) {
+    f.querySelector('[data-zone="v"]').addEventListener('click', (ev) => {
+      const b = ev.target.closest('[data-v]');
+      if (!b) return;
+      const il = Number(f.il.value || 0);
+      const s = S.ajouterSignal(horodatage(new Date(Date.now() - il * 60000)), Number(b.dataset.v));
+      fermer();
+      setTimeout(() => {
+        route();
+        toast(`Signalé : ${s.v}/10${il ? ` il y a ${il} min` : ''}`, { libelle: 'Annuler', action: () => { S.supprimerSignal(s.id); route(); } });
+      }, 60);
+    });
+    f.querySelector('[data-f="note"]').addEventListener('click', () => { fermer(false); vueNoter(); });
+  } else {
+    f.querySelector('[data-f="suppr"]').addEventListener('click', (ev) => {
+      if (!confirmerDeux(ev.currentTarget, 'Confirmer ?')) return;
+      S.supprimerSignal(x.id); fermer(); route(); toast('Signal supprimé');
+    });
+  }
 }
 
 // --- Rythme, débrief du matin, bilan du soir -----------------------------------------------------
@@ -1336,6 +1502,15 @@ function vueReglages() {
   app.innerHTML = `
     ${bandeau({ titre: 'Réglages' })}
     <div class="carte">
+      <h3>Écran du jour <small>essai</small></h3>
+      <div class="choix">${[['courbe', 'Courbe des crises'], ['planning', 'Planning et notes']].map(([v, t]) => `<button class="puce ${(S.reglages().ecran || 'courbe') === v ? 'choisi' : ''}" data-action="ecran" data-ecran="${v}">${t}</button>`).join('')}</div>
+      <p class="aide">Rien n'est perdu en passant de l'un à l'autre.</p>
+      <p class="titre-choix">La courbe tient après une saisie</p>
+      <div class="choix">${[15, 30, 45, 60].map((m) => `<button class="puce ${S.reglages().courbe.maintien === m ? 'choisi' : ''}" data-action="courbe-reglage" data-cle="maintien" data-val="${m}">${m} min</button>`).join('')}</div>
+      <p class="titre-choix">Puis redescend en</p>
+      <div class="choix">${[30, 60, 90, 120].map((m) => `<button class="puce ${S.reglages().courbe.descente === m ? 'choisi' : ''}" data-action="courbe-reglage" data-cle="descente" data-val="${m}">${{ 30: '30 min', 60: '1 h', 90: '1 h 30', 120: '2 h' }[m]}</button>`).join('')}</div>
+    </div>
+    <div class="carte">
       <h3>Rythme et types de jour <small>${S.rythme().types.length} types</small></h3>
       <p class="aide">Travail, télétravail, congé, week-end… et les heures de coucher et de réveil que tu te fixes pour chacun.</p>
       <button class="btn btn-large" data-action="aller" data-h="#/reglages/rythme">Régler ${I.droite}</button>
@@ -1381,7 +1556,7 @@ function vueReglages() {
     </div>
     <div class="zone-danger"><button class="lien danger" data-action="tout-effacer">Tout effacer sur cet appareil</button></div>
     ${carteAide()}
-    <p class="pied">Logger v2.1.1 · les données restent sur cet appareil${S.stockage() === 'indexeddb' ? ` (IndexedDB${S.stockageProtege() ? ', protégées' : ''})` : ''}</p>`;
+    <p class="pied">Logger v2.2 essai courbe · les données restent sur cet appareil${S.stockage() === 'indexeddb' ? ` (IndexedDB${S.stockageProtege() ? ', protégées' : ''})` : ''}</p>`;
   app.querySelector('[data-f="import"]').addEventListener('change', (ev) => importer(ev.target.files[0]));
 }
 
@@ -1494,6 +1669,12 @@ function vueGuide() {
       ['Icônes', 'Chaque type a un emoji, modifiable dans Réglages → Types (suggestions ou n\'importe quel emoji du clavier).'],
       ['Cartes', 'Les notes du jour dans l\'ordre.'],
       ['Journée', 'De 0 h à 24 h. Une plage qui passe minuit (endormissement) s\'affiche sur les deux jours.'],
+    ]],
+    ['Courbe des crises (essai)', [
+      ['Le principe', 'Un trait plat au repos. Le + (ou « Signaler ») donne l\'intensité du moment, de 0 à 10, maintenant ou un peu avant : la courbe monte en douceur jusqu\'à cette valeur.'],
+      ['Sans fin à déclarer', 'Après la dernière saisie, la courbe tient 30 min, puis redescend en 1 h jusqu\'au calme (réglable). « Toujours là » la relance à la même intensité ; une nouvelle valeur la fait monter ou descendre.'],
+      ['Voir', 'L\'encart montre la journée entière ; « Voir heure par heure » déploie la courbe, à faire défiler de côté. Toucher un point pour le corriger ou le supprimer.'],
+      ['Revenir au planning', 'Réglages → Écran du jour : planning et notes. Rien n\'est perdu d\'un côté ni de l\'autre.'],
     ]],
     ['Matin, soir et rythme', [
       ['Débrief du matin', 'Jusqu\'à midi, une carte propose de noter la nuit : endormissement (s\'il n\'a pas été noté la veille), nombre de réveils sans regarder l\'heure, temps éveillé, réveil final, la nuit de 0 à 10. Tout est facultatif ; « Pas aujourd\'hui » la range. Plus tard ou pour un autre jour : « Bilan de la nuit » dans l\'encart au-dessus du planning.'],
@@ -1765,7 +1946,7 @@ function fenetreNom(titre, onOk) {
 barre.addEventListener('click', (ev) => {
   const b = ev.target.closest('[data-barre]');
   if (!b) return;
-  if (b.dataset.barre === 'noter') return vueNoter();
+  if (b.dataset.barre === 'noter') return S.reglages().ecran !== 'planning' ? fenetreSignal() : vueNoter();
   aller(b.dataset.barre);
 });
 
@@ -1780,6 +1961,11 @@ app.addEventListener('click', (ev) => {
     case 'bilan': return fenetreBilan(d.d || jourAffiche);
     case 'fermer-carte': S.fermerCarte(d.d, d.quoi); vueJour(); return toast(d.quoi === 'nuit' ? 'Débrief rangé pour aujourd\'hui (toujours accessible : Bilan de la nuit)' : 'Bilan rangé pour ce soir (toujours accessible : Bilan de la journée)');
     case 'type-jour': return fenetreTypeJour(jourAffiche);
+    case 'courbe-bascule': S.reglages().courbeOuverte = !S.reglages().courbeOuverte; S.enregistrer(); return vueJour();
+    case 'signaler': return fenetreSignal();
+    case 'toujours': { const s = S.ajouterSignal(horodatage(), Number(d.v)); vueJour(); return toast(`Toujours là : ${s.v}/10`, { libelle: 'Annuler', action: () => { S.supprimerSignal(s.id); vueJour(); } }); }
+    case 'ecran': S.reglages().ecran = d.ecran; S.enregistrer(); route(); return toast(d.ecran === 'planning' ? 'Écran du jour : planning et notes' : 'Écran du jour : courbe des crises');
+    case 'courbe-reglage': S.reglages().courbe[d.cle] = Number(d.val); S.enregistrer(); route(); return toast('Réglage de la courbe enregistré');
     case 'passer': return passerQuestionnaire(d.q);
     case 'note': return fenetreNote(S.note(d.id));
     case 'noter-ici': return vueNoter();

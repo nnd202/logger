@@ -179,5 +179,21 @@ verifier('WHO-5 : score sur 100', Q.questionnaire('who5').score([5, 5, 5, 5, 5])
 S.enregistrerPassage('gad7', [1, 1, 1, 1, 1, 1, 1], 7);
 verifier('passage enregistré et exporté', S.passages('gad7').length === 1 && S.donneesExport().questionnaires.length === 1);
 
+// 12. Courbe des crises (essai v2.2).
+const K = await imp('courbe.js');
+const pp = { montee: 10, maintien: 30, descente: 60 };
+const ptsK = [{ m: 1000, v: 6 }, { m: 1020, v: 8 }];
+verifier('courbe : plate avant, monte doucement', K.niveau(980, ptsK, pp) === 0 && K.niveau(995, ptsK, pp) > 0 && K.niveau(995, ptsK, pp) < 6);
+verifier('courbe : passe par les signaux', K.niveau(1000, ptsK, pp) === 6 && K.niveau(1020, ptsK, pp) === 8);
+verifier('courbe : tient pendant le maintien', K.niveau(1049, ptsK, pp) === 8);
+verifier('courbe : redescend puis calme', K.niveau(1080, ptsK, pp) < 8 && K.niveau(1080, ptsK, pp) > 0 && K.niveau(1111, ptsK, pp) === 0);
+const cK = K.crises([{ m: 0, v: 5 }, { m: 50, v: 7 }, { m: 300, v: 4 }], pp);
+verifier('crises : séparées après retour au calme', cK.length === 2 && cK[0].pic === 7 && cK[0].derniere === 50 && cK[0].fin === 140);
+S._remplacer({ version: 2, notes: [] });
+const sg = S.ajouterSignal('2026-11-22T14:20', 6);
+verifier('signal enregistré, jour renseigné, exporté', S.signauxDuJour('2026-11-22').length === 1 && S.statutJour('2026-11-22') === 'renseigne' && S.donneesExport().signaux.length === 1);
+S.supprimerSignal(sg.id);
+verifier('signal supprimé', !S.signaux().length);
+
 console.log(`${ok} contrôles réussis, ${ko} échec${ko > 1 ? 's' : ''}`);
 process.exit(ko ? 1 : 0);
