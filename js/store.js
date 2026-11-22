@@ -3,7 +3,7 @@ import { uid, horodatage, jourDe, minutes, ajouterJours, ajouterMinutes } from '
 import { typesDeDepart, etiquettesDeDepart, DEBUT_JOURNEE, ICONES, ICONE_FAMILLE, ECHELLE_COPING } from './catalogue.js';
 import * as C from './crypto.js';
 import { ouvrirStockage } from './stockage.js';
-import { COURBE_DEFAUT } from './courbe.js';
+import { COURBE_DEFAUT, reglagesCourbe } from './courbe.js';
 
 const CLE = 'logger2-etat'; // état en clair (tant qu'aucun code n'existe)
 const CLE_COFFRE = 'logger2-coffre'; // état chiffré avec le code
@@ -68,7 +68,7 @@ function normaliser(e) {
   if (!r.colonnes || typeof r.colonnes !== 'object') r.colonnes = {};
   if (!Array.isArray(r.questionnaires)) r.questionnaires = [];
   if (!Array.isArray(r.signaux)) r.signaux = [];
-  r.reglages.courbe = { ...COURBE_DEFAUT, ...(r.reglages.courbe || {}) };
+  r.reglages.courbe = reglagesCourbe(r.reglages.courbe);
   if (!r.reglages.rythme?.types?.length) r.reglages.rythme = rythmeDeDepart();
   // Types ajoutés au catalogue après coup : on les complète sans toucher aux réglages existants.
   const ids = new Set(r.types.map((t) => t.id));

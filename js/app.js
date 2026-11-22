@@ -660,7 +660,7 @@ function sectionCourbe(d) {
   const hm = (m) => sansZero(heureDe(horodatage(new Date(m * 60000))));
 
   // Vue simplifiée : toute la journée en un coup d'œil.
-  const ech = echantillons(zero, fin, pts, p, 5);
+  const ech = echantillons(zero, fin, pts, p, 3);
   const XS = (m) => ((m - zero) / 1440) * 288, YS = (v) => 46 - v * 4.2;
   const t = traceCourbe(ech, XS, YS, 46);
   const coupe = estAuj ? Math.max(0, Math.min(288, XS(now))) : 288;
@@ -687,14 +687,11 @@ function sectionCourbe(d) {
     }).join('');
     const morceaux = cr.map((c, k) => {
       const a = Math.max(zero, c.debut - p.montee), b = Math.min(fin, c.fin);
-      const e = echantillons(a, b, pts, p, 2);
+      const e = echantillons(a, b, pts, p, 1);
       if (e.length < 2) return '';
       const tr = traceCourbe(e, X, CY, CH);
-      // L'estompage : plein jusqu'à la fin du maintien, puis vers le transparent.
-      const g = `cc-g${k}`;
-      return `<defs><linearGradient id="${g}" gradientUnits="userSpaceOnUse" x1="${X(c.finTenue)}" x2="${X(c.fin)}" y1="0" y2="0">
-          <stop offset="0" stop-color="#c2416b" stop-opacity="1"/><stop offset="1" stop-color="#c2416b" stop-opacity="0"/></linearGradient></defs>
-        <path d="${tr.aire}" fill="url(#${g})" opacity=".22"/><path d="${tr.ligne}" stroke="url(#${g})" class="cc-ligne-d"/>`;
+      // Plus d'estompage : la courbe elle-même revient doucement à 0.
+      return `<path d="${tr.aire}" class="cc-aire-d"/><path d="${tr.ligne}" class="cc-ligne-d"/>`;
     }).join('');
     const jour = pts.filter((x) => x.m >= zero && x.m < fin);
     detail = `<div class="cc-detail">
@@ -1505,10 +1502,9 @@ function vueReglages() {
       <h3>Écran du jour <small>essai</small></h3>
       <div class="choix">${[['courbe', 'Courbe des crises'], ['planning', 'Planning et notes']].map(([v, t]) => `<button class="puce ${(S.reglages().ecran || 'courbe') === v ? 'choisi' : ''}" data-action="ecran" data-ecran="${v}">${t}</button>`).join('')}</div>
       <p class="aide">Rien n'est perdu en passant de l'un à l'autre.</p>
-      <p class="titre-choix">La courbe tient après une saisie</p>
-      <div class="choix">${[15, 30, 45, 60].map((m) => `<button class="puce ${S.reglages().courbe.maintien === m ? 'choisi' : ''}" data-action="courbe-reglage" data-cle="maintien" data-val="${m}">${m} min</button>`).join('')}</div>
-      <p class="titre-choix">Puis redescend en</p>
-      <div class="choix">${[30, 60, 90, 120].map((m) => `<button class="puce ${S.reglages().courbe.descente === m ? 'choisi' : ''}" data-action="courbe-reglage" data-cle="descente" data-val="${m}">${{ 30: '30 min', 60: '1 h', 90: '1 h 30', 120: '2 h' }[m]}</button>`).join('')}</div>
+      <p class="titre-choix">Sans nouvelle saisie, la courbe revient à 0 en</p>
+      <div class="choix">${[60, 90, 120, 180].map((m) => `<button class="puce ${S.reglages().courbe.retour === m ? 'choisi' : ''}" data-action="courbe-reglage" data-cle="retour" data-val="${m}">${{ 60: '1 h', 90: '1 h 30', 120: '2 h', 180: '3 h' }[m]}</button>`).join('')}</div>
+      <p class="aide">Elle commence à redescendre dès la dernière saisie, lentement d'abord. Une nouvelle saisie la fait repartir de là où elle en était.</p>
     </div>
     <div class="carte">
       <h3>Rythme et types de jour <small>${S.rythme().types.length} types</small></h3>
@@ -1672,7 +1668,7 @@ function vueGuide() {
     ]],
     ['Courbe des crises (essai)', [
       ['Le principe', 'Un trait plat au repos. Le + (ou « Signaler ») donne l\'intensité du moment, de 0 à 10, maintenant ou un peu avant : la courbe monte en douceur jusqu\'à cette valeur.'],
-      ['Sans fin à déclarer', 'Après la dernière saisie, la courbe tient 30 min, puis redescend en 1 h jusqu\'au calme (réglable). « Toujours là » la relance à la même intensité ; une nouvelle valeur la fait monter ou descendre.'],
+      ['Sans fin à déclarer', 'Dès la dernière saisie, la courbe commence à redescendre, lentement d\'abord, et revient à 0 (rien à signaler) en 1 h 30 (réglable). « Toujours là » la relance à la même intensité ; une nouvelle valeur la fait repartir de là où elle en était.'],
       ['Voir', 'L\'encart montre la journée entière ; « Voir heure par heure » déploie la courbe, à faire défiler de côté. Toucher un point pour le corriger ou le supprimer.'],
       ['Revenir au planning', 'Réglages → Écran du jour : planning et notes. Rien n\'est perdu d\'un côté ni de l\'autre.'],
     ]],

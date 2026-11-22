@@ -700,7 +700,7 @@ svg.pl-liens { position: absolute; top: 0; left: 0; height: 100% !important; poi
 .cc-resume b { color: var(--texte); }
 .cc-mini { width: 100%; height: 54px; display: block; fill: none; }
 .cc-aire { fill: rgba(194, 65, 107, .2); stroke: none; }
-.cc-ligne { fill: none; stroke: #c2416b; stroke-width: 1.6; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.cc-ligne { fill: none; stroke: #c2416b; stroke-width: 2.2; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
 .cc-base { stroke: #e2dade; stroke-width: 1; vector-effect: non-scaling-stroke; }
 .cc-now { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
 .cc-detail { position: relative; display: flex; margin-top: 10px; }
@@ -712,7 +712,8 @@ svg.pl-liens { position: absolute; top: 0; left: 0; height: 100% !important; poi
 .cc-grand text { fill: var(--texte-3); font-size: 10.5px; font-family: inherit; stroke: none; }
 .cc-heure { stroke: #f1ecee; stroke-width: 1; }
 .cc-mi { stroke: #efe8eb; stroke-width: 1; stroke-dasharray: 3 4; }
-.cc-ligne-d { fill: none; stroke-width: 2.4; stroke-linejoin: round; stroke-linecap: round; }
+.cc-ligne-d { fill: none; stroke: #c2416b; stroke-width: 3.2; stroke-linejoin: round; stroke-linecap: round; }
+.cc-aire-d { fill: rgba(194, 65, 107, .16); stroke: none; }
 .cc-futur { fill: rgba(255, 255, 255, .6); }
 .cc-nuit { fill: rgba(79, 111, 174, .08); }
 .cc-nuit.visee { fill: rgba(79, 111, 174, .045); }

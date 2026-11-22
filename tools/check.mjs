@@ -181,14 +181,21 @@ verifier('passage enregistré et exporté', S.passages('gad7').length === 1 && S
 
 // 12. Courbe des crises (essai v2.2).
 const K = await imp('courbe.js');
-const pp = { montee: 10, maintien: 30, descente: 60 };
-const ptsK = [{ m: 1000, v: 6 }, { m: 1020, v: 8 }];
-verifier('courbe : plate avant, monte doucement', K.niveau(980, ptsK, pp) === 0 && K.niveau(995, ptsK, pp) > 0 && K.niveau(995, ptsK, pp) < 6);
-verifier('courbe : passe par les signaux', K.niveau(1000, ptsK, pp) === 6 && K.niveau(1020, ptsK, pp) === 8);
-verifier('courbe : tient pendant le maintien', K.niveau(1049, ptsK, pp) === 8);
-verifier('courbe : redescend puis calme', K.niveau(1080, ptsK, pp) < 8 && K.niveau(1080, ptsK, pp) > 0 && K.niveau(1111, ptsK, pp) === 0);
+const pp = { montee: 20, retour: 90 };
+const ptsK = [{ m: 1000, v: 6 }, { m: 1015, v: 8 }];
+verifier('courbe : plate avant, monte doucement', K.niveau(970, ptsK, pp) === 0 && K.niveau(990, ptsK, pp) > 0 && K.niveau(990, ptsK, pp) < 6);
+verifier('courbe : passe par les signaux', Math.abs(K.niveau(1000, ptsK, pp) - 6) < 1e-9 && Math.abs(K.niveau(1015, ptsK, pp) - 8) < 1e-9);
+verifier('courbe : redescend aussitôt, lentement, sans plateau', K.niveau(1020, ptsK, pp) < 8 && K.niveau(1020, ptsK, pp) > 7.8 && K.niveau(1060, ptsK, pp) < 6);
+verifier('courbe : revient à 0 en 1 h 30', K.niveau(1104, ptsK, pp) > 0 && K.niveau(1105, ptsK, pp) === 0);
+const fK = K.courbe([{ m: 0, v: 6 }, { m: 40, v: 8 }], pp);
+verifier('courbe : remontée depuis là où la descente en était', fK(20) < 6 && fK(20) > 5 && fK(40) === 8);
+let lisse = true;
+const fL = K.courbe([{ m: 0, v: 4 }, { m: 30, v: 7 }, { m: 40, v: 8 }, { m: 60, v: 6 }, { m: 200, v: 5 }], pp);
+for (let t = -30; t < 300; t += 0.5) { const a1 = fL(t + 0.5) - fL(t), a2 = fL(t + 1) - fL(t + 0.5); if (Math.abs(a2 - a1) > 0.05) lisse = false; if (fL(t) < 0 || fL(t) > 10) lisse = false; }
+verifier('courbe : lisse partout, entre 0 et 10', lisse);
 const cK = K.crises([{ m: 0, v: 5 }, { m: 50, v: 7 }, { m: 300, v: 4 }], pp);
 verifier('crises : séparées après retour au calme', cK.length === 2 && cK[0].pic === 7 && cK[0].derniere === 50 && cK[0].fin === 140);
+verifier('anciens réglages : maintien + descente → retour', K.reglagesCourbe({ maintien: 30, descente: 60 }).retour === 90);
 S._remplacer({ version: 2, notes: [] });
 const sg = S.ajouterSignal('2026-11-22T14:20', 6);
 verifier('signal enregistré, jour renseigné, exporté', S.signauxDuJour('2026-11-22').length === 1 && S.statutJour('2026-11-22') === 'renseigne' && S.donneesExport().signaux.length === 1);
