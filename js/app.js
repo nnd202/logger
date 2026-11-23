@@ -33,7 +33,7 @@ document.addEventListener('change', (ev) => {
 });
 import { activerBulles, teinte } from './graph.js';
 import { niveau, echantillons, crises, courbe } from './courbe.js';
-import { FAMILLES, famille, SAISIE, CERCLES, FACETTES, MOMENTS, AIDE, DEBUT_JOURNEE, LATENCES, ZONE_MIN, SUGGESTIONS } from './catalogue.js';
+import { FAMILLES, famille, SAISIE, CERCLES, FACETTES, MOMENTS, AIDE, DEBUT_JOURNEE, LATENCES, ZONE_MIN, SUGGESTIONS, ETATS_COURBE, DECLENCHEURS } from './catalogue.js';
 import {
   aujourdhui, heureMaintenant, ajouterJours, jourSemaine, dateCourte, dateNum, dateLongue, JOURS_COURTS, JOURS, ecartJours,
   horodatage, minutes, ajouterMinutes, jourDe, heureDe, texteDuree, pluriel, ilYA, majuscule,
@@ -708,22 +708,17 @@ function sectionCourbe(d) {
       if (!n.fin && minutes(n.debut) < zero) return '';
       return b > a ? `<rect x="${X(a)}" y="0" width="${X(b) - X(a)}" height="${CH + 4}" class="cc-nuit ${n.debutReel || n.finReelle ? '' : 'visee'}"/>` : '';
     }).join('');
-    // Trait plein : ce qui a été dit (et relié). Pointillé : la descente estimée après la dernière saisie.
-    const morceaux = cr.map((c) => {
+    // Une couche par crise : l'aire unie, les traits fantômes qui respirent, le trait plein (ce qui a été dit)
+    // et le pointillé (la descente estimée après la dernière saisie). Les tracés sont animés par brancherCourbe.
+    animCourbe = { X, Y: CY, base: CH, segs: [] };
+    const morceaux = cr.map((c, k) => {
       const a = Math.max(zero, c.debut - p.montee), m = Math.min(fin, c.derniere), b = Math.min(fin, c.fin);
-      let h = '';
-      if (m > a) {
-        const tr = traceCourbe(echantillons(a, m, pts, p, 1), X, CY, CH);
-        h += `<path d="${tr.aire}" class="cc-aire-d"/><path d="${tr.ligne}" class="cc-ligne-d"/>`;
-      }
-      if (b > Math.max(a, m)) {
-        const tr = traceCourbe(echantillons(Math.max(a, m), b, pts, p, 1), X, CY, CH);
-        h += `<path d="${tr.aire}" class="cc-aire-d estime"/><path d="${tr.ligne}" class="cc-ligne-d estime"/>`;
-      }
-      return h;
+      if (b <= a) return '';
+      animCourbe.segs.push({ k, ech: echantillons(a, b, pts, p, 2), m });
+      return `<g data-seg="${k}"><path class="cc-aire-d"/>${[0, 1, 2, 3].map((g) => `<path class="cc-fantome" data-g="${g}"/>`).join('')}<path class="cc-ligne-d"/><path class="cc-ligne-d estime"/></g>`;
     }).join('');
-    const jour = pts.filter((x) => x.m >= zero && x.m < fin);
     detail = `<div class="cc-detail">
+      <div class="cc-pop" hidden></div>
       <div class="cc-axe" aria-hidden="true" style="height:${CH + 26}px"><span style="top:${CY(10)}px">10</span><span style="top:${CY(5)}px">5</span><span style="top:${CY(0)}px">0</span></div>
       <div class="cc-defile">
         <svg width="${W}" height="${CH + 26}" style="width:${W}px;height:${CH + 26}px" class="cc-grand" role="img" aria-label="Courbe des crises heure par heure">
@@ -732,8 +727,7 @@ function sectionCourbe(d) {
           <line x1="0" x2="${W}" y1="${CY(5)}" y2="${CY(5)}" class="cc-mi"/>
           <line x1="0" x2="${W}" y1="${CH}" y2="${CH}" class="cc-base"/>
           ${morceaux}
-          ${estAuj ? `<rect x="${X(now)}" y="0" width="${Math.max(0, W - X(now))}" height="${CH}" class="cc-futur"/><line x1="${X(now)}" x2="${X(now)}" y1="0" y2="${CH}" class="cc-now"/>` : ''}
-          ${jour.map((x) => `<g class="cc-point" data-signal="${x.id}"><circle cx="${X(x.m)}" cy="${CY(x.v)}" r="16" fill="transparent"/><circle cx="${X(x.m)}" cy="${CY(x.v)}" r="5"/></g>`).join('')}
+          ${estAuj ? `<rect x="${X(now)}" y="0" width="${Math.max(0, W - X(now))}" height="${CH}" class="cc-futur"/>` : ''}
         </svg>
       </div>
     </div>`;
@@ -747,73 +741,178 @@ function sectionCourbe(d) {
       <span class="planning-bascule">${ouvert ? 'Replier la courbe' : 'Voir heure par heure'} ${I.bas}</span>
     </button>
     ${detail}
-    ${estAuj ? `<div class="cc-actions">
-      <button class="btn btn-principal" data-action="signaler">Signaler</button>
-      ${crEnCours && dernier ? `<button class="btn" data-action="toujours" data-v="${dernier.v}">Toujours là · ${dernier.v}</button>` : ''}
-    </div>` : ''}
+    ${estAuj ? `<div class="cc-actions"><button class="btn btn-principal" data-action="signaler">Noter</button></div>` : ''}
   </section>`;
 }
+
+let animCourbe = null;
+let animTour = 0;
 
 function brancherCourbe(memoX) {
   const defile = app.querySelector('.cc-defile');
   if (!defile) return;
+  const d = jourAffiche;
+  const zero = minutes(`${d}T00:00`);
+  const p = S.reglages().courbe;
   if (memoX != null) defile.scrollLeft = memoX;
   else {
-    const d = jourAffiche;
-    const zero = minutes(`${d}T00:00`);
-    const p = S.reglages().courbe;
     const c = crises(pointsCourbe(), p).find((x) => x.fin > zero && x.debut < zero + 1440);
     const cible = d === auj() ? maintenantMin() - 3 * 60 : c ? c.debut - 60 : zero + 8 * 60;
     defile.scrollLeft = Math.max(0, ((cible - zero) / 60) * PXH);
   }
+
+  // Animation : la courbe respire à peine autour de sa valeur ; les traits fantômes ondulent davantage
+  // et passent en fondu, chacun à son rythme. Les valeurs lues au toucher restent les vraies.
+  const A = animCourbe;
+  const svg = defile.querySelector('svg');
+  const tour = ++animTour;
+  const fantomes = [
+    { ph: 0.9, amp: 0.55, vit: 1.0 }, { ph: -1.4, amp: 0.75, vit: 0.8 },
+    { ph: 2.3, amp: 0.45, vit: 1.25 }, { ph: -2.8, amp: 0.95, vit: 0.65 },
+  ];
+  const ondule = (t, tick, ph, vit) => Math.sin(t / 23 + tick * 0.9 * vit + ph) * 0.6 + Math.sin(t / 9 - tick * 1.4 * vit + ph * 1.7) * 0.4;
+  const trace = (ech, f) => ech.map((e, i) => `${i ? 'L' : 'M'}${A.X(e.m).toFixed(1)},${A.Y(f(e)).toFixed(1)}`).join(' ');
+  const debut = performance.now();
+  const image = (now) => {
+    if (tour !== animTour || !svg.isConnected) return;
+    if (!document.hidden) {
+      const tick = (now - debut) / 1000;
+      for (const sg of A.segs) {
+        const g = svg.querySelector(`[data-seg="${sg.k}"]`);
+        if (!g) continue;
+        const souffle = (e) => Math.max(0, e.v + ondule(e.m, tick, 0, 1) * 0.12 * Math.min(1, e.v / 2));
+        const plein = sg.ech.filter((e) => e.m <= sg.m), estime = sg.ech.filter((e) => e.m >= sg.m);
+        const ligne = trace(sg.ech, souffle);
+        const fin = sg.ech[sg.ech.length - 1], dep = sg.ech[0];
+        g.querySelector('.cc-aire-d').setAttribute('d', `${ligne} L${A.X(fin.m)},${A.base} L${A.X(dep.m)},${A.base} Z`);
+        g.querySelector('.cc-ligne-d:not(.estime)').setAttribute('d', plein.length > 1 ? trace(plein, souffle) : '');
+        g.querySelector('.cc-ligne-d.estime').setAttribute('d', estime.length > 1 ? trace(estime, souffle) : '');
+        fantomes.forEach((f, i) => {
+          const el = g.querySelector(`[data-g="${i}"]`);
+          el.setAttribute('d', trace(sg.ech, (e) => Math.max(0, e.v + ondule(e.m, tick, f.ph, f.vit) * f.amp * Math.min(1, e.v / 2))));
+          el.style.opacity = (0.06 + 0.16 * (0.5 + 0.5 * Math.sin(tick * 0.7 * f.vit + f.ph * 2))).toFixed(3);
+        });
+      }
+    }
+    requestAnimationFrame(image);
+  };
+  requestAnimationFrame(image);
+
+  // Toucher la courbe : l'heure, le niveau et ce qui a été noté ; « Modifier » pour la saisie la plus proche.
+  const pop = app.querySelector('.cc-pop');
   defile.addEventListener('click', (ev) => {
-    const g = ev.target.closest('[data-signal]');
-    if (g) fenetreSignal(S.signal(g.dataset.signal));
+    const r = svg.getBoundingClientRect();
+    const t = zero + ((ev.clientX - r.left) / PXH) * 60;
+    const pts = pointsCourbe();
+    const v = niveau(t, pts, p);
+    if (v < 0.2) { pop.hidden = true; return; }
+    const avant = pts.filter((x) => x.m <= t).pop();
+    const proche = pts.reduce((b, x) => (Math.abs(x.m - t) < Math.abs((b?.m ?? Infinity) - t) ? x : b), null);
+    const sig = avant && S.signal(avant.id);
+    const estime = !pts.some((x) => x.m >= t);
+    const quoi = (sig?.matieres || []).map((id) => S.type(id)).filter(Boolean).map((ty) => `${ty.icone} ${ty.nom.toLowerCase()}`).join(', ');
+    const hm = (m) => sansZero(heureDe(horodatage(new Date(m * 60000))));
+    pop.innerHTML = `<b>${hm(t)}</b> · ≈ ${Math.round(v)}/10${estime ? ' <small>estimé</small>' : ''}${quoi ? `<br>${esc(quoi)}` : ''}
+      ${proche && Math.abs(proche.m - t) <= 20 ? `<button class="lien" data-modif="${proche.id}">Modifier la saisie de ${hm(proche.m)}</button>` : ''}`;
+    pop.hidden = false;
+    clearTimeout(pop.minuteur);
+    pop.minuteur = setTimeout(() => { pop.hidden = true; }, 5000);
+    const zone = pop.parentElement.getBoundingClientRect();
+    pop.style.left = `${Math.min(zone.width - pop.offsetWidth - 4, Math.max(4, ev.clientX - zone.left - pop.offsetWidth / 2))}px`;
+  });
+  pop.addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-modif]');
+    if (b) { pop.hidden = true; fenetreSignal(S.signal(b.dataset.modif)); }
   });
 }
 
-/** Signaler l'intensité (nouveau) ou corriger un signal. Nouveau : toucher un chiffre enregistre aussitôt. */
+/**
+ * Noter (nouveau) ou corriger une saisie de la courbe : quand, l'intensité (obligatoire), ce qui est là
+ * (états, envies, coping, facultatifs, repris de la saisie précédente si la perturbation continue) et,
+ * au début d'une perturbation seulement, le déclencheur.
+ */
 function fenetreSignal(x) {
   const nouveau = !x;
+  const p = S.reglages().courbe;
+  const autres = pointsCourbe().filter((y) => !x || y.id !== x.id);
+  const visibles = (fam) => S.get().types.filter((t) => t.famille === fam && t.visible);
+  const etats = ETATS_COURBE.map((id) => S.type(id)).filter((t) => t && t.visible);
+  const tsDe = (f) => (nouveau ? horodatage(new Date(Date.now() - Number(f.il.value || 0) * 60000)) : `${x.ts.slice(0, 10)}T${f.heure.value || heureDe(x.ts)}`);
+  const continue_ = (ts) => niveau(minutes(ts), autres, p) > 0.05;
+  const precedent = (ts) => { const m = minutes(ts); const y = autres.filter((z) => z.m <= m).pop(); return y ? S.signal(y.id) : null; };
+  const tsDepart = nouveau ? horodatage() : x.ts;
+  const suite = continue_(tsDepart);
+  const choisis = new Set(nouveau ? (suite ? precedent(tsDepart)?.matieres || [] : []) : x.matieres || []);
+  const dec = (!nouveau && x.declencheur) || {};
+  const puce = (t) => `<button type="button" class="puce ${choisis.has(t.id) ? 'choisi' : ''}" data-m="${t.id}"><span class="emoji">${esc(t.icone)}</span> ${esc(t.nom)}</button>`;
+  const etq = S.get().etiquettes.filter((e) => !e.archive);
   ouvrirFenetre(`<form class="saisie" style="--c:#a82654">
-    <h2>${nouveau ? 'Là, maintenant' : 'Signal'} <small>${nouveau ? "l'intensité de la crise" : `de ${sansZero(heureDe(x.ts))}`}</small></h2>
+    <h2>${nouveau ? 'Noter' : 'Saisie'} <small>${nouveau ? 'où tu en es' : `de ${sansZero(heureDe(x.ts))}`}</small></h2>
     <div class="saisie-corps">
       ${nouveau ? `<p class="titre-choix">Quand</p>${puces1('il', [{ v: 0, t: 'Là' }, { v: 10, t: 'il y a 10 min' }, { v: 20, t: '20 min' }, { v: 30, t: '30 min' }, { v: 60, t: '1 h' }], 0)}` : `<label class="champ"><span>Heure</span><input type="time" name="heure" value="${heureDe(x.ts)}"></label>`}
-      <p class="titre-choix">Intensité${nouveau ? '<em>un toucher enregistre</em>' : ''}</p>
-      ${grille010('v', nouveau ? null : x.v, 'calme', 'au maximum')}
-      ${nouveau ? '' : '<button class="btn btn-principal btn-large">Enregistrer</button>'}
-      ${nouveau ? '<button type="button" class="lien" data-f="note">Note détaillée (types, envies, coping…)</button>' : '<div class="actions-sec"><button type="button" class="lien danger" data-f="suppr">Supprimer ce signal</button></div>'}
+      <p class="titre-choix">Intensité</p>
+      ${grille010('v', nouveau ? null : x.v, 'rien à signaler', 'au maximum')}
+      <div data-dec ${suite && !x?.declencheur ? 'hidden' : ''}>
+        <p class="titre-choix">Ce qui l'a déclenchée<em>début d'une perturbation</em></p>
+        <div class="liste-dec">${DECLENCHEURS.map((d) => `<button type="button" class="dec ${dec.nature === d.id ? 'choisi' : ''}" data-dec="${d.id}"><b>${esc(d.nom)}</b><small>${esc(d.aide)}</small></button>`).join('')}</div>
+        <p class="aide">Lié à <em>facultatif</em></p>
+        <div class="choix">${etq.map((e) => `<button type="button" class="puce ${(dec.etiquettes || []).includes(e.id) ? 'choisi' : ''}" data-etq="${e.id}">${esc(e.nom)}</button>`).join('')}</div>
+      </div>
+      <p class="titre-choix">Ce qui est là<em>facultatif${suite && nouveau ? ' · repris de la saisie précédente' : ''}</em></p>
+      <div class="choix">${etats.map(puce).join('')}</div>
+      <p class="aide">Une envie</p>
+      <div class="choix">${visibles('envie').map(puce).join('')}</div>
+      <p class="aide">Ce que je fais / j'ai fait</p>
+      <div class="choix">${visibles('coping').map(puce).join('')}</div>
+      <button class="btn btn-principal btn-large">${nouveau ? 'Noter' : 'Enregistrer'}</button>
+      ${nouveau ? '<button type="button" class="lien" data-f="note">Note détaillée (ancienne saisie)</button>' : '<div class="actions-sec"><button type="button" class="lien danger" data-f="suppr">Supprimer cette saisie</button></div>'}
     </div>
-  </form>`, (fd) => {
-    const v = nombreOuNull(fd.get('v'));
-    if (v == null) return toast('Choisis une intensité');
-    const ts = `${x.ts.slice(0, 10)}T${fd.get('heure') || heureDe(x.ts)}`;
+  </form>`, () => {
+    const f = couche.querySelector('form');
+    const v = nombreOuNull(f.v.value);
+    if (v == null) return toast("Choisis l'intensité");
+    const ts = tsDe(f);
     if (ts > horodatage()) return toast("Cette heure n'est pas encore arrivée");
-    S.modifierSignal(x, { ts, v });
-    fermer();
-    setTimeout(() => { route(); toast('Signal corrigé'); }, 60);
-  });
+    const matieres = [...f.querySelectorAll('[data-m].choisi')].map((b) => b.dataset.m);
+    const debut = !continue_(ts);
+    const nature = f.querySelector('[data-dec].choisi')?.dataset.dec;
+    if (debut && v > 0 && !nature) {
+      f.querySelector('[data-dec]').hidden = false;
+      f.querySelector('[data-dec]').scrollIntoView({ block: 'center', behavior: 'smooth' });
+      return toast("C'est le début d'une perturbation : qu'est-ce qui l'a déclenchée ? (« Je ne sais pas » compte)");
+    }
+    const declencheur = debut && nature ? { nature, etiquettes: [...f.querySelectorAll('[data-etq].choisi')].map((b) => b.dataset.etq) } : null;
+    if (nouveau) {
+      const s2 = S.ajouterSignal(ts, v, { matieres, ...(declencheur ? { declencheur } : {}) });
+      fermer();
+      setTimeout(() => { route(); toast(`Noté : ${s2.v}/10`, { libelle: 'Annuler', action: () => { S.supprimerSignal(s2.id); route(); } }); }, 60);
+    } else {
+      S.modifierSignal(x, { ts, v, matieres, declencheur: declencheur || (debut ? x.declencheur : null) || undefined });
+      fermer();
+      setTimeout(() => { route(); toast('Saisie corrigée'); }, 60);
+    }
+  }, 'fixe');
   const f = couche.querySelector('form');
   brancherChoix(f);
-  if (nouveau) {
-    f.querySelector('[data-zone="v"]').addEventListener('click', (ev) => {
-      const b = ev.target.closest('[data-v]');
-      if (!b) return;
-      const il = Number(f.il.value || 0);
-      const s = S.ajouterSignal(horodatage(new Date(Date.now() - il * 60000)), Number(b.dataset.v));
-      fermer();
-      setTimeout(() => {
-        route();
-        toast(`Signalé : ${s.v}/10${il ? ` il y a ${il} min` : ''}`, { libelle: 'Annuler', action: () => { S.supprimerSignal(s.id); route(); } });
-      }, 60);
-    });
-    f.querySelector('[data-f="note"]').addEventListener('click', () => { fermer(false); vueNoter(); });
-  } else {
-    f.querySelector('[data-f="suppr"]').addEventListener('click', (ev) => {
-      if (!confirmerDeux(ev.currentTarget, 'Confirmer ?')) return;
-      S.supprimerSignal(x.id); fermer(); route(); toast('Signal supprimé');
-    });
-  }
+  f.addEventListener('click', (ev) => {
+    const m = ev.target.closest('[data-m], [data-etq]');
+    if (m) return m.classList.toggle('choisi');
+    const dd = ev.target.closest('[data-dec]');
+    if (dd && dd.classList.contains('dec')) { f.querySelectorAll('.dec').forEach((b) => b.classList.toggle('choisi', b === dd)); }
+  });
+  // Changer « Quand » peut faire passer d'une suite à un début de perturbation (et inversement).
+  const majDec = () => {
+    const ts = tsDe(f);
+    const suite2 = continue_(ts);
+    f.querySelector('div[data-dec]').hidden = suite2 && !x?.declencheur;
+  };
+  f.querySelector('[data-zone="il"]')?.addEventListener('click', () => setTimeout(majDec));
+  f.heure?.addEventListener('change', majDec);
+  f.querySelector('[data-f="note"]')?.addEventListener('click', () => { fermer(false); vueNoter(); });
+  f.querySelector('[data-f="suppr"]')?.addEventListener('click', (ev) => {
+    if (!confirmerDeux(ev.currentTarget, 'Confirmer ?')) return;
+    S.supprimerSignal(x.id); fermer(); route(); toast('Saisie supprimée');
+  });
 }
 
 // --- Rythme, débrief du matin, bilan du soir -----------------------------------------------------
@@ -1586,7 +1685,7 @@ function vueReglages() {
     </div>
     <div class="zone-danger"><button class="lien danger" data-action="tout-effacer">Tout effacer sur cet appareil</button></div>
     ${carteAide()}
-    <p class="pied">Logger v2.2 essai courbe · les données restent sur cet appareil${S.stockage() === 'indexeddb' ? ` (IndexedDB${S.stockageProtege() ? ', protégées' : ''})` : ''}</p>`;
+    <p class="pied">Logger v2.3 essai courbe · les données restent sur cet appareil${S.stockage() === 'indexeddb' ? ` (IndexedDB${S.stockageProtege() ? ', protégées' : ''})` : ''}</p>`;
   app.querySelector('[data-f="import"]').addEventListener('change', (ev) => importer(ev.target.files[0]));
 }
 

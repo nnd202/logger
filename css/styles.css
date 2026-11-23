@@ -778,3 +778,19 @@ svg.pl-liens { position: absolute; top: 0; left: 0; height: 100% !important; poi
 :root[data-theme="sombre"] .plc-ajout { background: repeating-linear-gradient(-45deg, transparent 0 8px, #1b171a 8px 16px); }
 :root[data-theme="sombre"] .infos-jour, :root[data-theme="sombre"] .carte-courbe { box-shadow: var(--ombre); }
 :root[data-theme="sombre"] .puce.choisi { background: var(--degrade); background-origin: border-box; border-color: transparent; color: #fff; }
+
+/* Courbe : traits fantômes, lecture au toucher, panneau « Noter » */
+.cc-fantome { fill: none; stroke: #c2416b; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: opacity .3s; }
+:root[data-theme="sombre"] .cc-fantome { stroke: #f3a9c2; }
+.cc-pop { position: absolute; top: -6px; z-index: 3; max-width: 260px; padding: 8px 11px; border-radius: 12px; background: var(--carte); box-shadow: 0 6px 20px rgba(40, 20, 30, .22); font-size: 13px; line-height: 1.45; color: var(--texte-2); }
+.cc-pop b { color: var(--texte); }
+.cc-pop small { color: var(--texte-3); }
+.cc-pop .lien { display: block; margin-top: 4px; font-size: 13px; }
+:root[data-theme="sombre"] .cc-pop { background: #2f282d; }
+.liste-dec { display: flex; flex-direction: column; gap: 6px; }
+.dec { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; padding: 9px 12px; border-radius: 12px; border: 1.5px solid var(--trait); background: var(--carte); }
+.dec b { font-size: 14px; color: var(--texte); }
+.dec small { font-size: 12px; color: var(--texte-3); }
+.dec.choisi { border-color: var(--accent); background: var(--pale-2); }
+:root[data-theme="sombre"] .dec { background: #2a2429; }
+:root[data-theme="sombre"] .dec.choisi { border-color: #c2416b; background: color-mix(in srgb, #a82654 25%, #211c20); }

@@ -176,3 +176,17 @@ export const LATENCES = [
   { min: 90, nom: "Plus d'1 h" },
 ];
 export const ZONE_MIN = 30;
+
+// --- Courbe des crises (essai) : ce qu'on demande à chaque « Noter » ---------------------------------
+
+/** États proposés dans « Ce qui est là » (sélection de départ dans le catalogue). */
+export const ETATS_COURBE = ['maletre', 'stress', 'tristesse', 'irritabilite', 'agitation', 'fatigue'];
+
+/** Nature du déclencheur, demandée au début d'une perturbation (une seule réponse, comptable en stats). */
+export const DECLENCHEURS = [
+  { id: 'situation', nom: 'Une situation', aide: 'quelque chose qui arrive : un échange, le travail, un message…' },
+  { id: 'pensee', nom: 'Une pensée, un souvenir', aide: "quelque chose qui passe par la tête, ce qui s'est passé ou ce qui va venir" },
+  { id: 'corps', nom: 'Une sensation dans le corps', aide: 'fatigue, douleur, faim, manque…' },
+  { id: 'emotion', nom: 'Une émotion déjà là', aide: "une émotion qui a pris de l'ampleur" },
+  { id: 'inconnu', nom: 'Je ne sais pas', aide: "c'est une réponse à part entière" },
+];

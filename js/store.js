@@ -401,8 +401,8 @@ export function nuitDe(d) {
 export const signaux = () => [...etat.signaux].sort((a, b) => a.ts.localeCompare(b.ts));
 export const signal = (id) => etat.signaux.find((x) => x.id === id);
 export const signauxDuJour = (date) => etat.signaux.filter((x) => x.ts.startsWith(date));
-export function ajouterSignal(ts, v) {
-  const x = { id: uid('s'), ts, v };
+export function ajouterSignal(ts, v, plus = {}) {
+  const x = { id: uid('s'), ts, v, ...plus };
   etat.signaux.push(x);
   enregistrer();
   return x;
