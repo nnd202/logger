@@ -206,5 +206,17 @@ verifier('signal enregistré, jour renseigné, exporté', S.signauxDuJour('2026-
 S.supprimerSignal(sg.id);
 verifier('signal supprimé', !S.signaux().length);
 
+// 13. Déclencheur : étiquettes proches (pas de doublon), fusion jusque dans la courbe.
+S._remplacer({ version: 2, notes: [] });
+const tv = S.ajouterEtiquette('travail');
+const noms = (q) => S.etiquettesProches(q).map((e) => e.nom).join();
+const premier1 = (q) => noms(q).split(',')[0];
+verifier('étiquettes proches : majuscule, pluriel, début, faute de frappe', ['Travail', 'trav', 'travial', '#travails'].every((q) => premier1(q) === 'travail'));
+verifier('étiquettes proches : télétravail trouvé par « teletra »', noms('teletra').includes('télétravail'));
+const dbl = S.ajouterEtiquette('boulot');
+const sgx = S.ajouterSignal('2026-11-23T10:00', 5, { declencheur: { etiquettes: [dbl.id] } });
+S.fusionnerEtiquettes(dbl.id, tv.id);
+verifier('fusion d\'étiquettes : la courbe suit', S.signal(sgx.id).declencheur.etiquettes.join() === tv.id);
+
 console.log(`${ok} contrôles réussis, ${ko} échec${ko > 1 ? 's' : ''}`);
 process.exit(ko ? 1 : 0);

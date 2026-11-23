@@ -466,8 +466,49 @@ export function fusionnerEtiquettes(de, vers) {
   for (const n of etat.notes) {
     if (n.etiquettes.includes(de)) n.etiquettes = [...new Set(n.etiquettes.map((x) => (x === de ? vers : x)))];
   }
+  for (const x of etat.signaux) {
+    const l = x.declencheur?.etiquettes;
+    if (l?.includes(de)) x.declencheur.etiquettes = [...new Set(l.map((y) => (y === de ? vers : y)))];
+  }
   etat.etiquettes = etat.etiquettes.filter((e) => e.id !== de);
   enregistrer();
+}
+
+/** Combien de fois chaque étiquette a servi (déclencheurs de la courbe d'abord, puis notes). */
+export function usageEtiquettes() {
+  const u = new Map();
+  for (const x of etat.signaux) for (const id of x.declencheur?.etiquettes || []) u.set(id, (u.get(id) || 0) + 2);
+  for (const n of etat.notes) for (const id of n.etiquettes || []) u.set(id, (u.get(id) || 0) + 1);
+  return u;
+}
+
+/** Texte comparable : minuscules, sans accents, sans « # », espaces resserrés. */
+export const comparable = (t) => String(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/^#+/, '').replace(/\s+/g, ' ').trim();
+
+function distance(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+
+/**
+ * Étiquettes proches d'une saisie : même mot à l'accent ou au pluriel près, début ou partie du mot,
+ * ou une faute de frappe (1 à 2 lettres). Évite de créer deux étiquettes pour la même chose.
+ */
+export function etiquettesProches(texte) {
+  const q = comparable(texte).replace(/s$/, '');
+  if (!q) return [];
+  const u = usageEtiquettes();
+  return etat.etiquettes.filter((e) => !e.archive).map((e) => {
+    const n = comparable(e.nom).replace(/s$/, '');
+    let score = null;
+    if (n === q) score = 0;
+    else if (n.startsWith(q)) score = 1;
+    else if (n.includes(q) || (q.length > 3 && q.includes(n))) score = 2;
+    else if (distance(n, q) <= (q.length > 5 ? 2 : 1)) score = 3;
+    return { e, score };
+  }).filter((x) => x.score != null).sort((a, b) => a.score - b.score || (u.get(b.e.id) || 0) - (u.get(a.e.id) || 0)).map((x) => x.e);
 }
 
 export function ajouterPersonne(nom) {

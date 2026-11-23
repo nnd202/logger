@@ -794,3 +794,21 @@ svg.pl-liens { position: absolute; top: 0; left: 0; height: 100% !important; poi
 .dec.choisi { border-color: var(--accent); background: var(--pale-2); }
 :root[data-theme="sombre"] .dec { background: #2a2429; }
 :root[data-theme="sombre"] .dec.choisi { border-color: #c2416b; background: color-mix(in srgb, #a82654 25%, #211c20); }
+
+/* Courbe : la matière seule, en couches translucides */
+.cc-couche { fill: #c2416b; stroke: none; }
+:root[data-theme="sombre"] .cc-couche { fill: #e0628f; }
+.cc-estime { opacity: .45; }
+.noter-courbe .champ-heure { max-width: 160px; }
+.noter-courbe .titre-bloc { margin: 4px 0 -2px; font-weight: 600; color: var(--texte-2); }
+.dec-zone { display: flex; flex-direction: column; gap: 8px; }
+.dec-recherche input { width: 100%; box-sizing: border-box; min-height: 40px; border-radius: 12px; border: 1.5px solid var(--trait); background: var(--carte); padding: 0 12px; font: inherit; color: var(--texte); }
+:root[data-theme="sombre"] .dec-recherche input { background: #2a2429; }
+.puce.creer { border-style: dashed; }
+.puce.creer svg { width: 12px; height: 12px; vertical-align: -1px; }
+.noter-pied { position: sticky; bottom: 0; padding: 10px 0 4px; background: linear-gradient(to bottom, transparent, var(--carte) 30%); }
+
+.cc-voile-0 { stop-color: #fff; stop-opacity: 0; }
+.cc-voile-1 { stop-color: #fff; stop-opacity: .6; }
+:root[data-theme="sombre"] .cc-voile-0 { stop-color: #141114; stop-opacity: 0; }
+:root[data-theme="sombre"] .cc-voile-1 { stop-color: #141114; stop-opacity: .55; }
