@@ -6,6 +6,31 @@ import * as V from './verrou.js';
 import * as C from './crypto.js';
 import { exemple } from './demo.js';
 import { QUESTIONNAIRES, questionnaire, bande, AIDE_URGENCE } from './questionnaires.js';
+
+// --- Apparence : clair, sombre, ou sombre sur une plage horaire ----------------------------------------
+// Rangée à part, en clair (rien de sensible), pour s'appliquer dès l'écran du code.
+const CLE_THEME = 'logger2-theme';
+function lireTheme() {
+  try { return { mode: 'clair', de: '21:00', a: '07:00', ...JSON.parse(localStorage.getItem(CLE_THEME) || '{}') }; } catch { return { mode: 'clair', de: '21:00', a: '07:00' }; }
+}
+function ecrireTheme(t) { try { localStorage.setItem(CLE_THEME, JSON.stringify(t)); } catch { /* bloqué */ } appliquerTheme(); }
+function appliquerTheme() {
+  const t = lireTheme();
+  let sombre = t.mode === 'sombre';
+  if (t.mode === 'plage') {
+    const h = heureMaintenant();
+    sombre = t.de <= t.a ? h >= t.de && h < t.a : h >= t.de || h < t.a;
+  }
+  document.documentElement.dataset.theme = sombre ? 'sombre' : 'clair';
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', sombre ? '#141114' : '#f6f4f5');
+}
+appliquerTheme();
+setInterval(appliquerTheme, 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) appliquerTheme(); });
+document.addEventListener('change', (ev) => {
+  const i = ev.target.closest?.('[data-theme-heure]');
+  if (i && i.value) { ecrireTheme({ ...lireTheme(), [i.dataset.themeHeure]: i.value }); route(); }
+});
 import { activerBulles, teinte } from './graph.js';
 import { niveau, echantillons, crises, courbe } from './courbe.js';
 import { FAMILLES, famille, SAISIE, CERCLES, FACETTES, MOMENTS, AIDE, DEBUT_JOURNEE, LATENCES, ZONE_MIN, SUGGESTIONS } from './catalogue.js';
@@ -711,8 +736,7 @@ function sectionCourbe(d) {
           ${jour.map((x) => `<g class="cc-point" data-signal="${x.id}"><circle cx="${X(x.m)}" cy="${CY(x.v)}" r="16" fill="transparent"/><circle cx="${X(x.m)}" cy="${CY(x.v)}" r="5"/></g>`).join('')}
         </svg>
       </div>
-    </div>
-    ${cr.length ? `<ul class="cc-crises">${cr.map((c) => `<li><b>${hm(c.debut)}</b> → dernière trace ${hm(c.derniere)} · pic ${c.pic}/10 · ${pluriel(c.points.length, 'signal', 'signaux')}${estAuj && c.fin > now ? ' · <em>en cours</em>' : ''}</li>`).join('')}</ul>` : ''}`;
+    </div>`;
   }
 
   return `<section class="carte-courbe ${ouvert ? 'ouvert' : ''}">
@@ -1503,6 +1527,12 @@ function vueReglages() {
   app.innerHTML = `
     ${bandeau({ titre: 'Réglages' })}
     <div class="carte">
+      <h3>Apparence</h3>
+      <div class="choix">${[['clair', 'Clair'], ['sombre', 'Sombre'], ['plage', 'Sombre sur une plage']].map(([v, t]) => `<button class="puce ${lireTheme().mode === v ? 'choisi' : ''}" data-action="theme" data-mode="${v}">${t}</button>`).join('')}</div>
+      ${lireTheme().mode === 'plage' ? `<div class="deux"><label class="champ"><span>De</span><input type="time" data-theme-heure="de" value="${lireTheme().de}"></label><label class="champ"><span>À</span><input type="time" data-theme-heure="a" value="${lireTheme().a}"></label></div>
+      <p class="aide">Sombre de ${lireTheme().de} à ${lireTheme().a}, clair le reste du temps.</p>` : ''}
+    </div>
+    <div class="carte">
       <h3>Écran du jour <small>essai</small></h3>
       <div class="choix">${[['courbe', 'Courbe des crises'], ['planning', 'Planning et notes']].map(([v, t]) => `<button class="puce ${(S.reglages().ecran || 'courbe') === v ? 'choisi' : ''}" data-action="ecran" data-ecran="${v}">${t}</button>`).join('')}</div>
       <p class="aide">Rien n'est perdu en passant de l'un à l'autre.</p>
@@ -1964,6 +1994,7 @@ app.addEventListener('click', (ev) => {
     case 'courbe-bascule': S.reglages().courbeOuverte = !S.reglages().courbeOuverte; S.enregistrer(); return vueJour();
     case 'signaler': return fenetreSignal();
     case 'toujours': { const s = S.ajouterSignal(horodatage(), Number(d.v)); vueJour(); return toast(`Toujours là : ${s.v}/10`, { libelle: 'Annuler', action: () => { S.supprimerSignal(s.id); vueJour(); } }); }
+    case 'theme': ecrireTheme({ ...lireTheme(), mode: d.mode }); return route();
     case 'ecran': S.reglages().ecran = d.ecran; S.enregistrer(); route(); return toast(d.ecran === 'planning' ? 'Écran du jour : planning et notes' : 'Écran du jour : courbe des crises');
     case 'courbe-reglage': S.reglages().courbe[d.cle] = Number(d.val); S.enregistrer(); route(); return toast('Réglage de la courbe enregistré');
     case 'passer': return passerQuestionnaire(d.q);
